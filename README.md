@@ -10,32 +10,27 @@ DSH（DeepSeek Harness）的**渠道内核 + 人格引擎**：适配器把不同
 
 ## 现在是什么状态
 
-**只有设计，没有代码。** 本仓库当前收录全量设计文档 [`docs/design.md`](./docs/design.md)（约 1200 行），路线图见其中 §6。
+**只有设计，没有代码。** 设计已决议并拆成可评审的契约、判据与决策；阶段与完成判据见[路线图](docs/roadmap.md)。
 
-| 阶段 | 目标 | 状态 |
-|---|---|---|
-| P0 契约 | 事件模型 / 能力声明 / 动作目录 / 渠道提示词 / 账号与场所键 / capability token | 设计完成，待冻结为类型包 |
-| P1 单协议跑通 | `dsh-channel-core` + `dsh-driver-onebot11` | 未开始 |
-| P2 人格层 | 人格工作区 / 场所会话 / 控制台 / 记忆分层 / 权限校验 | 未开始 |
-| P3 注意力与自主 | 在场集合 / 注意力预算 / 做梦与记忆版本化 | 未开始 |
-| P4 扩张与迁移 | 多协议多平台 / 自我复制（配合 dsh-workspace-mesh） | 未开始 |
+## 五层结构
 
-## 三层结构
+分五层：L0 是不动的 DSH 底座，L1 `dsh-channel-core` 收敛平台差异，L2 每个平台一份 driver，L3 `dsh-persona` 管人格、记忆与权限，L4 是可分发的人格包。边界与依赖方向只写在[分层与 bundle 形态](docs/reference/layering.md)，这里不重复。
 
-```
-L0  DSH Core          agent · session log · tools · systemPrompt · approval      （不改动）
-L1  dsh-channel-core  统一事件模型 · 账号注册表 · 会话绑定 · 动作目录→工具 · 唯一审批应答者
-L2  dsh-driver-*      每平台一份：OneBot 11 / OneBot 12 / Satori / Milky / 原生
-L3  dsh-persona-*     人格工作区 · 在场集合 · 跨场所记忆 · 沙箱与发布 · 权限
-L4  人格包            人设 · 配置 · 记忆 · 场景
-```
+## 它不是「一个机器人接了很多平台」
 
-## 它与已有方案的区别
+而是「一个人同时活在很多地方」：平台差异收敛成一份**动作目录**，人格差异收敛成**场所**与**分层记忆**。为什么这样设计、和生态里已有方案差在哪，见[定位](docs/explanation/overview.md)。
 
-- **不是「一个机器人接了很多平台」，是「一个人同时活在很多地方」。** 平台差异收敛成一份*动作目录*，人格差异收敛成*场所*与*分层记忆*。
-- **适配器声明动作，工具自动生成。** 一份 `ActionDescriptor` 同时决定模型能做什么、能不能自主做、要不要人点头。
-- **权限跟着消息走。** 每条入站消息带一枚服务端签名的 capability token，随该轮继承；模型说了什么永远不构成授权。
-- **记忆是 git 仓库。** 可回滚、可分叉、可夜间整理（做梦）、可连同人格一起搬到新机器。
+## 文档怎么进
+
+| 想做的事 | 打开 |
+|---|---|
+| 判断这是什么东西 | [定位](docs/explanation/overview.md) |
+| 开始实现 | [文档导航](docs/README.md) → [分层](docs/reference/layering.md) → [DSH 接缝](docs/reference/dsh-seams.md) |
+| 看现在做到哪 | [路线图](docs/roadmap.md) |
+| 查字段 / 判据 / 默认值 | [判据与默认值](docs/reference/policies.md) |
+| 确认某件事定没定 | [决策登记](docs/adr/README.md) |
+
+全仓唯一入口是 [docs/README.md](docs/README.md)，它按角色给出读法。
 
 ## 相关
 
