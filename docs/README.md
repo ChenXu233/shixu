@@ -85,6 +85,7 @@ docs/
 | [adr/0001-risk-criterion.md](adr/0001-risk-criterion.md) | 权限判据改用「可逆性 × 影响半径」 |
 | [adr/0002-memory-repo.md](adr/0002-memory-repo.md) | 全部记忆进版本历史，仓库默认私有 |
 | [adr/0003-single-approval-answerer.md](adr/0003-single-approval-answerer.md) | 审批应答者只能有一个且在内核 |
+| [adr/0004-grow-by-friction.md](adr/0004-grow-by-friction.md) | 插件按摩擦拆，不预先规划 |
 
 每份文档开头都有自己的状态与日期，本页不重复。
 

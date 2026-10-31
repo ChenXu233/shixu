@@ -1,0 +1,8 @@
+# @shixu/channel 的挂载清单。bundle 只做组合，不承载逻辑：
+# 每一行都是可单独启停的插件，行与行之间只通过 service 名相连。
+- insert:
+    - id: shixu-channels
+      name: '@shixu/channel'
+
+    - id: shixu-driver-fake
+      name: '@shixu/channel/driver-fake'

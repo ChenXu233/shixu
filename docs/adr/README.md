@@ -24,6 +24,7 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | [0001](0001-risk-criterion.md) | 风险判据 | 可逆性 × 影响半径，不是「破坏性」 | accepted | P0 |
 | [0002](0002-memory-repo.md) | 记忆仓库策略 | 全部记忆进版本历史，仓库默认私有，不加密 | accepted | P3 |
 | [0003](0003-single-approval-answerer.md) | 审批应答者落点 | 只有 `dsh-channel-core` 能应答 | accepted | P0 |
+| [0004](0004-grow-by-friction.md) | 插件怎么拆 | 按摩擦拆，不预先规划插件图 | accepted | P1 |
 | — | 涉及信用的动作类别 | 六项统一归「不可逆 + 高影响」（见[能力矩阵](../reference/policies.md#能力矩阵)） | accepted | P0 |
 | — | 人格与场所 | 唯一一人格；场所多个且可同时在场 | accepted | P2 |
 | — | 跨场所广播 | 延迟投递不打断：运行中的场所 `steer()`，空闲场所靠读穿 | accepted | P3 |

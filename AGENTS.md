@@ -40,22 +40,25 @@
 
 文档与事实冲突时**以事实为准，并在同一次改动里把文档改成事实**。不要写「勘误」「以前是…现在是…」。
 
-现在没有代码，所以第 1 条暂时不适用；但**涉及 DSH API 的结论必须回读 DSH 安装包**（见 [dsh-seams.md](docs/reference/dsh-seams.md)），不要信转述。
+代码刚起步，但优先级不因此改变：**涉及 DSH API 的结论必须回读 DSH 安装包**（见 [dsh-seams.md](docs/reference/dsh-seams.md)），不要信转述。
 
 ## 3. 现状
 
 | 项 | 事实 | 依据 |
 |---|---|---|
 | 设计 | 已决议，写成文档 | `docs/` |
-| 实现 | 无代码 | 文件树 |
-| 契约类型包 | 不存在，P0 才冻结 | [roadmap.md](docs/roadmap.md) |
+| 实现 | 一条最小切片：`packages/channel`（channels seam + driver-fake） | `packages/channel/src` |
+| 真实协议接入 | 未开始 | 文件树 |
+| 契约类型包 | 只冻结了渠道层词汇表，其余未冻结 | [roadmap.md](docs/roadmap.md) |
 
 **不要在本文件或 README 里写进度。** 进度只有一个家：[roadmap.md](docs/roadmap.md)。
 
 ## 4. 常用命令
 
 ```bash
-python scripts/check_docs.py      # 文档自检，退出码 0 才算通过
+python scripts/check_docs.py              # 文档自检，退出码 0 才算通过
+pnpm -r build                              # 编译全部包
+node packages/channel/test/smoke.mjs       # 渠道 seam 的冒烟测试
 ```
 
 这是唯一一份命令块；其他文档只放指针。
@@ -74,6 +77,7 @@ python scripts/check_docs.py      # 文档自检，退出码 0 才算通过
 | 决策是否有效、有哪些待拍板 | [docs/adr/README.md](docs/adr/README.md) |
 | 为什么这样设计 | `docs/explanation/` 下对应文档（一份一个主题） |
 | 文档导航 | [docs/README.md](docs/README.md)（不建第二份索引） |
+| 包与插件行的划分 | 各包的 `cordis.patch.yml`；为什么这么拆见最新一篇 ADR |
 
 | 改了什么 | 同步到 |
 |---|---|
