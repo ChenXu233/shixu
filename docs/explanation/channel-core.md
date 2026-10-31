@@ -2,7 +2,7 @@
 
 > **状态**：已决议
 > **日期**：2026-10-31
-> **读者**：写 `dsh-channel-core`、或要判断「这块该不该放进内核」的人
+> **读者**：写 `dsh-shixu-channel`、或要判断「这块该不该放进内核」的人
 > **上游材料**：[渠道内核契约](../reference/contracts-channel.md)、[判据与默认值](../reference/policies.md)
 > **口径**：讲取舍与生态证据；字段定义见契约页
 
@@ -14,7 +14,7 @@ L1 的体积必须小到能一眼看完。它存在的理由只有三条：**收
 
 所以内核独占这件事，具体做法：
 
-- **只有 `dsh-channel-core` 实现 `approval/request` 的应答者**，driver 不得自己监听；
+- **只有 `dsh-shixu-channel` 实现 `approval/request` 的应答者**，driver 不得自己监听；
 - 核心层收到审批请求 → 找到该 agent 所属渠道会话 → 推到聊天里 → 等「批准 / 拒绝」；
 - 校验「聊天与会话归属」，防止别群 / 别会话冒批；
 - 超时回落本机审批体系（`ctx.approval` 自身策略）；

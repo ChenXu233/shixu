@@ -8,12 +8,12 @@
 
 ## 现状
 
-**P0 进行中。** 有一条跑通的最小切片：`@shixu/channel` 的 seam（driver 注册 / 事件扇出 / 出站路由）+ 内存 driver，冒烟测试见 `packages/channel/test/smoke.mjs`。还没有任何真实协议、没有 agent 绑定、没有工具生成。
+**P0 进行中。** 有一条跑通的最小切片：`dsh-shixu-channel` 的 seam（driver 注册 / 事件扇出 / 出站路由）+ 内存 driver，冒烟测试见 `packages/channel/test/smoke.mjs`。还没有任何真实协议、没有 agent 绑定、没有工具生成。
 
 | 阶段 | 交付物 | 完成判据 | 状态 | 相关文档 |
 |---|---|---|---|---|
 | **P0 契约** | 统一事件模型 · Capabilities · MessageSegment · ActionDescriptor · ChannelProfile · 账号与场所键 · capability token 契约 · 风险判据 | 一份可评审的规范 + TS 类型包；`dsh-im` 与 `dsh-im-gateway` 两套现有实现能映射进来 | 进行中 | [渠道内核契约](reference/contracts-channel.md) · [人格引擎契约](reference/contracts-persona.md) · [判据](reference/policies.md) · [DSH 接缝](reference/dsh-seams.md) |
-| **P1 单协议跑通** | `dsh-channel-core` + `dsh-driver-onebot11`（反向 WS）+ 一个 read / write 动作 | 群 @ → Agent → 回复全链路；动作目录自动生成工具并被模型真实调用一次 | 未开始 | [渠道内核契约](reference/contracts-channel.md) · [渠道内核：为什么](explanation/channel-core.md) |
+| **P1 单协议跑通** | `dsh-shixu-channel` + `dsh-shixu-driver-onebot11`（反向 WS）+ 一个 read / write 动作 | 群 @ → Agent → 回复全链路；动作目录自动生成工具并被模型真实调用一次 | 未开始 | [渠道内核契约](reference/contracts-channel.md) · [渠道内核：为什么](explanation/channel-core.md) |
 | **P2 人格层** | 人格工作区（git）+ 场所 session / child agent + 控制台 GUI + 记忆分层 + 凭据落位 + capability 校验 | 多群共用一个人格；控制台能看到真实回复；记忆按层可见；guest 调不动工具 | 未开始 | [人格与场所](explanation/persona-presence.md) · [跨场所记忆](explanation/memory.md) · [权限与身份](explanation/permission-identity.md) |
 | **P3 注意力与自主** | 在场集合 + 预算 + 阻尼 + 公平插队 + 离场记忆 + 原生 goal 续轮 + schedule + 记忆版本化与做梦 | 能在多群之间自然切换而不刷屏；不赖着不走；会主动开口；记忆有历史可回滚可分叉 | 未开始 | [人格与场所](explanation/persona-presence.md) · [沙箱与产物交付](explanation/sandbox-delivery.md) · [跨场所记忆](explanation/memory.md) |
 | **P4 扩张与迁移** | OneBot 12 / Satori / Milky / 原生 Telegram · Discord · 飞书 + 自我复制（mesh 跨机） | 多协议多平台；人格可迁到新机器且记忆连续、身份可验 | 未开始 | [生态](explanation/ecosystem.md) · [复制与迁移](explanation/replication.md) |

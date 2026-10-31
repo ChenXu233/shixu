@@ -24,9 +24,9 @@
 | 层 | 一句话 |
 |---|---|
 | L0 DSH Core | 不动的底座 |
-| L1 `dsh-channel-core` | 平台差异收敛处，独占审批应答与凭据 |
-| L2 `dsh-driver-*` | 每平台一份，只懂自己那套协议 |
-| L3 `dsh-persona` | 人格、场所、记忆、权限、发布 |
+| L1 `dsh-shixu-channel` | 平台差异收敛处，独占审批应答与凭据 |
+| L2 `dsh-shixu-driver-*` | 每平台一份，只懂自己那套协议 |
+| L3 `dsh-shixu-persona` | 人格、场所、记忆、权限、发布 |
 | L4 人格包 | 可分发的人设 + 记忆 |
 
 ## 2. 事实优先级

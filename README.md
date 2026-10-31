@@ -14,7 +14,7 @@ DSH（DeepSeek Harness）的**渠道内核 + 人格引擎**：适配器把不同
 
 ## 五层结构
 
-分五层：L0 是不动的 DSH 底座，L1 `dsh-channel-core` 收敛平台差异，L2 每个平台一份 driver，L3 `dsh-persona` 管人格、记忆与权限，L4 是可分发的人格包。边界与依赖方向只写在[分层与 bundle 形态](docs/reference/layering.md)，这里不重复。
+分五层：L0 是不动的 DSH 底座，L1 `dsh-shixu-channel` 收敛平台差异，L2 每个平台一份 driver，L3 `dsh-shixu-persona` 管人格、记忆与权限，L4 是可分发的人格包。边界与依赖方向只写在[分层与 bundle 形态](docs/reference/layering.md)，这里不重复。
 
 ## 它不是「一个机器人接了很多平台」
 

@@ -2,7 +2,7 @@
 
 > **状态**：已决议（P0 待冻结为类型包）
 > **日期**：2026-10-31
-> **读者**：写 `dsh-channel-core` 与 `dsh-driver-*` 的人
+> **读者**：写 `dsh-shixu-channel` 与 `dsh-shixu-driver-*` 的人
 > **上游材料**：[分层与 bundle 形态](layering.md)、[DSH 接缝与硬约束](dsh-seams.md)
 > **口径**：字段与语义冻结；类型名可调，语义不可调
 

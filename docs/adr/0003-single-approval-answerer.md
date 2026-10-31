@@ -13,7 +13,7 @@
 
 ## 决策
 
-**只有 `dsh-channel-core` 实现 `approval/request` 的应答者，driver 不得自己监听。**
+**只有 `dsh-shixu-channel` 实现 `approval/request` 的应答者，driver 不得自己监听。**
 
 内核收到审批请求后的完整链条：
 

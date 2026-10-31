@@ -11,26 +11,35 @@
 | 层 | 职责 | 形态 |
 |---|---|---|
 | L0 DSH Core | agent · session log v4 · tools · systemPrompt · approval · schedule · goal · credentials | 不改动 |
-| L1 渠道内核 Channel Core | 统一事件模型 · 账号注册表 · 会话绑定 · 动作目录→工具 · 唯一审批应答者 · 提问桥 · 限流去重 · 凭据落位 | bundle `dsh-channel-core`（provide `channels`） |
-| L2 适配器层 Driver | 一个平台一份实现：协议归一化 · 动作目录 · 能力声明 · 编码分片 · 降级留痕 | bundle `dsh-driver-<protocol>` |
-| L3 人格引擎 Persona | 人格工作区 · 在场集合与注意力 · 跨场所记忆 · 沙箱与产物交付 · capability 权限 · 记忆版本化与做梦 · 复制与迁移 | bundle `dsh-persona` |
+| L1 渠道内核 Channel Core | 统一事件模型 · 账号注册表 · 会话绑定 · 动作目录→工具 · 唯一审批应答者 · 提问桥 · 限流去重 · 凭据落位 | bundle `dsh-shixu-channel`（provide `channels`） |
+| L2 适配器层 Driver | 一个平台一份实现：协议归一化 · 动作目录 · 能力声明 · 编码分片 · 降级留痕 | bundle `dsh-shixu-driver-<protocol>` |
+| L3 人格引擎 Persona | 人格工作区 · 在场集合与注意力 · 跨场所记忆 · 沙箱与产物交付 · capability 权限 · 记忆版本化与做梦 · 复制与迁移 | bundle `dsh-shixu-persona` |
 | L4 人格包 | 人设 · 人格配置 · 记忆 · 场景（群聊 / 私聊）· 渠道提示词覆盖 | 可分发单元 |
 
 自下而上，每一层只依赖下一层的公开契约。
 
 ```text
 L4  人格包              人设 · 配置 · 记忆 · 场景
-L3  dsh-persona         人格工作区 · 在场集合 · 跨场所记忆 · 沙箱与发布 · 权限
-L2  dsh-driver-*        每平台一份：OneBot 11 / OneBot 12 / Satori / Milky / 原生
-L1  dsh-channel-core    统一事件模型 · 账号注册表 · 会话绑定 · 动作目录→工具 · 唯一审批应答者
+L3  dsh-shixu-persona         人格工作区 · 在场集合 · 跨场所记忆 · 沙箱与发布 · 权限
+L2  dsh-shixu-driver-*        每平台一份：OneBot 11 / OneBot 12 / Satori / Milky / 原生
+L1  dsh-shixu-channel    统一事件模型 · 账号注册表 · 会话绑定 · 动作目录→工具 · 唯一审批应答者
 L0  DSH Core            agent · session log · tools · systemPrompt · approval（不改动）
 ```
 
 ## 分发
 
-沿用 DSH 既有模型：`dsh.bundle.patch` → `dsh.profile` 的有序 bundles 组合。`dsh-channel-core` 是一个 bundle（`dsh.bundle.patch` + `cordis.patch.yml`），各 driver 是独立 bundle，由 profile 的有序 bundles 组合。
+沿用 DSH 既有模型：`dsh.bundle.patch` → `dsh.profile` 的有序 bundles 组合。`dsh-shixu-channel` 是一个 bundle（`dsh.bundle.patch` + `cordis.patch.yml`），各 driver 是独立 bundle，由 profile 的有序 bundles 组合。
 
 **profile 里装哪几个 driver，就是这个机器人支持哪些平台。** 平台能力不在代码里写死，在 profile 里选。
+
+### 包名规则（唯一一处）
+
+`dsh-shixu-<角色>`：`dsh-shixu-channel`、`dsh-shixu-driver-<protocol>`、`dsh-shixu-persona`。
+
+- 用 unscoped `dsh-` 前缀，跟随生态（`dsh-im`、`dsh-qqbot`、`dsh-aurabot-qq`），不依赖注册 npm scope；
+- 加 `shixu` 段避免撞名：`@deepseek-ai/dsh-persona` 已被官方占用，`dsh-im` 已被他人占用；
+- 插件清单只认 `package.json` 的 `dsh.bundle` 字段，**前缀不是技术限制**（已核 `dsh-host-plugin-inventory` 与 `dsh-plugin-market-index` 源码），是惯例；
+- 包名用单数、服务名用复数，跟随官方风格：`dsh-agent` → `ctx.agents`，`dsh-shixu-channel` → `ctx.channels`。
 
 ## 边界
 

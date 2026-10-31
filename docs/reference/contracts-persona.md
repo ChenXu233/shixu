@@ -2,7 +2,7 @@
 
 > **状态**：已决议（P0 待冻结为类型包）
 > **日期**：2026-10-31
-> **读者**：写 `dsh-persona` 的人
+> **读者**：写 `dsh-shixu-persona` 的人
 > **上游材料**：[分层与 bundle 形态](layering.md)、[渠道内核契约](contracts-channel.md)
 > **口径**：字段与语义冻结；为什么这样设计见 `../explanation/` 下对应文档
 
