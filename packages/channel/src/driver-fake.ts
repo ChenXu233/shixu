@@ -20,6 +20,8 @@ export interface FakeDriver extends ChannelDriver {
     userId?: string
     text: string
     detailType?: 'private' | 'group'
+    /** 默认 message；notice / request / meta 用来验证「不该唤醒人格的事件」。 */
+    type?: 'message' | 'notice' | 'request' | 'meta'
   }): UnifiedEvent
   /** driver 收到的出站调用，按顺序。 */
   readonly sent: SentCall[]
@@ -78,7 +80,7 @@ export function apply(ctx: Context): void {
     simulateInbound(input) {
       const event: UnifiedEvent = {
         id: `fake-${++sequence}`,
-        type: 'message',
+        type: input.type ?? 'message',
         detailType: input.detailType ?? 'group',
         self: { platform: 'fake', accountId: 'bot', displayName: '时煦' },
         timestamp: Date.now(),

@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest'
+import { venueKey, venueKeyOf, type UnifiedEvent } from '../dist/contracts.js'
+
+/**
+ * 破损类：**同一个会话被当成两个**，或**两个会话被当成一个**。
+ * 用户看到：同一个群里人格有两套记忆与在场状态；或 A 群的消息跑进 B 群。
+ * venueKey 的全部职责就是把会话钉成一把稳定的键，所以只测它的边界。
+ */
+describe('venueKey：会话的身份', () => {
+  it('没有线程时就是三段', () => {
+    expect(venueKey({ platform: 'qq', accountId: 'bot', conversationId: 'g1' })).toBe('qq:bot:g1')
+  })
+
+  it('有线程时多一段，且不与兄弟线程撞键', () => {
+    const a = venueKey({ platform: 'qq', accountId: 'bot', conversationId: 'g1', threadId: 't1' })
+    const b = venueKey({ platform: 'qq', accountId: 'bot', conversationId: 'g1', threadId: 't2' })
+    expect(a).toBe('qq:bot:g1:t1')
+    expect(a).not.toBe(b)
+  })
+
+  it('空线程等于没有线程', () => {
+    expect(venueKey({ platform: 'qq', accountId: 'bot', conversationId: 'g1', threadId: '' }))
+      .toBe('qq:bot:g1')
+  })
+
+  it('没有 conversationId 的事件不构成场所', () => {
+    const event = {
+      id: 'e1', type: 'notice', detailType: 'system',
+      self: { platform: 'qq', accountId: 'bot' }, timestamp: 1, raw: null,
+    } as UnifiedEvent
+    expect(venueKeyOf(event)).toBeUndefined()
+  })
+})

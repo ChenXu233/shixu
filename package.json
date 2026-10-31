@@ -6,9 +6,12 @@
   "description": "时煦：DSH 的渠道内核 + 人格引擎",
   "scripts": {
     "build": "pnpm -r build",
-    "test": "node packages/channel/test/smoke.mjs"
+    "test": "pnpm -r build && vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r exec tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
   }
 }

@@ -42,6 +42,9 @@ export class Channels extends Service {
       }
       this.drivers.set(driver.id, driver)
       driver.onEvent((event) => {
+        // 驱动卸载后，socket 可能还会送来最后几条消息（晚到事件）——
+        // 已经不在表里的 driver 不许再把事件扇出去，否则热重载会出现幽灵消息。
+        if (this.drivers.get(driver.id) !== driver) return
         this.ctx.events.emit('channels/event', event)
       })
       return () => {
