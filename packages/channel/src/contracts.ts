@@ -42,6 +42,38 @@ export interface UnifiedEvent {
   raw: unknown
 }
 
+/** 一个「场所」的最小身份：哪个平台、哪个账号、哪个会话、哪个线程。 */
+export interface VenueRef {
+  platform: string
+  accountId: string
+  conversationId: string
+  threadId?: string
+}
+
+/** 会话的稳定键。绑定表、去重、日志都共用这一个公式。 */
+export function venueKey(ref: VenueRef): string {
+  const parts = [ref.platform, ref.accountId, ref.conversationId]
+  if (ref.threadId !== undefined && ref.threadId !== '') parts.push(ref.threadId)
+  return parts.join(':')
+}
+
+/** 事件 → 场所键。没有 conversationId 的事件（notice / meta）不构成场所。 */
+export function venueKeyOf(event: UnifiedEvent): string | undefined {
+  if (event.conversationId === undefined) return undefined
+  return venueKey({
+    platform: event.self.platform,
+    accountId: event.self.accountId,
+    conversationId: event.conversationId,
+    ...(event.threadId === undefined ? {} : { threadId: event.threadId }),
+  })
+}
+
+export interface ChatSession extends VenueRef {
+  /** venueKey(session) */
+  key: string
+  conversationType: 'private' | 'group' | 'guild' | 'channel'
+}
+
 /** driver 声明的能力。内核据此决定降级，而不是靠猜。 */
 export interface Capabilities {
   sendImage: boolean
@@ -95,21 +127,4 @@ export interface Account {
   enabled: boolean
   protocol: string
   capabilities: Capabilities
-}
-
-export interface ChatSession {
-  /** platform:accountId:conversationId[:threadId] */
-  key: string
-  platform: string
-  accountId: string
-  conversationId: string
-  threadId?: string
-  conversationType: 'private' | 'group' | 'guild' | 'channel'
-}
-
-/** 会话的稳定键。场所、绑定表、去重都共用这一个公式。 */
-export function venueKey(session: Omit<ChatSession, 'key'>): string {
-  const parts = [session.platform, session.accountId, session.conversationId]
-  if (session.threadId !== undefined && session.threadId !== '') parts.push(session.threadId)
-  return parts.join(':')
 }

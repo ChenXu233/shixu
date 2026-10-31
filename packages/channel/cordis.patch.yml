@@ -6,3 +6,6 @@
 
     - id: shixu-driver-fake
       name: 'dsh-shixu-channel/driver-fake'
+
+    - id: shixu-channel-binding
+      name: 'dsh-shixu-channel/binding'

@@ -10,6 +10,7 @@
     ".": { "types": "./dist/channels.d.ts", "default": "./dist/channels.js" },
     "./contracts": { "types": "./dist/contracts.d.ts", "default": "./dist/contracts.js" },
     "./driver-fake": { "types": "./dist/driver-fake.d.ts", "default": "./dist/driver-fake.js" },
+    "./binding": { "types": "./dist/binding.d.ts", "default": "./dist/binding.js" },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
