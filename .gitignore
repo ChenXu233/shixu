@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+
+# build output
+lib/
+dist/
+*.tsbuildinfo
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# agent teams runtime state (local only, never shared)
+.agent-teams/
+
+# local env & secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.log
+
+# package artifacts / scratch
+*.tgz
+.pnpm-store/
+.cache/
+*.local
