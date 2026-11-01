@@ -100,6 +100,7 @@ window.__ModuleLoader__.load({
 
       var t = ctx.locale.bind(LOCALE_NS);
 
+
       ctx.slots.inject('settings.section', function () {
         return ctx.slots.register(
           {

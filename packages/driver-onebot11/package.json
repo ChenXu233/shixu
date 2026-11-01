@@ -1,6 +1,6 @@
 {
   "name": "dsh-shixu-driver-onebot11",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "OneBot 11 驱动：反向 WebSocket，把协议事件归一化成统一事件",

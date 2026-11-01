@@ -89,8 +89,23 @@ export const Config = z.object({
 
 **Files:** `packages/channel/client/client.js`
 
-- [ ] 在 dev 实例的面板里打印 `ctx.remote.settings.describe()` 的返回，**把真实形状抄进本任务下方**，确认哪个命名空间对应我们这一行、字段怎么取。
-- [ ] 实现读取：拿到 `{ revision, values }`，渲染成"当前值"三组；读失败时显示错误而不是空表单。
+**形状已实测**（在 dev 实例里跑 describe() 抄下来的，不是从类型文件猜的）：
+
+```text
+{ ok: true, value: { writable, hasDocument, namespaces: [{
+    ns: 'shixu-driver-onebot11',   // = 行 id
+    autoGenerate: true,            // 表单由导出的 Config 投影
+    value: { mode: 'reverse', host: '0.0.0.0', port: 6700 },  // 生效值，未设的不出现
+    base: {...}, user: { host, port },  // user = 被覆盖过的那部分
+    applies: 'live',               // 改完即生效
+    secrets: [{ path: ['accessToken'], set: true }],  // 只报状态不报值
+    revision: 0,                   // 写回时原样带回
+}] } }
+```
+
+取法：`namespaces.find(n => n.ns === 'shixu-driver-onebot11')`。`platform` 不在 value 里是正常的——没标 volatile 的字段不进表单。
+
+- [ ] 实现读取：按上面的形状取到这一行，渲染成三组当前值；读失败显示错误而不是空表单。
 - [ ] 验证：在 profile patch 里手改一个字段，刷新页面后面板显示新值。
 - [ ] 提交：`feat(channel): 面板读取当前配置`。
 
@@ -118,6 +133,9 @@ export const Config = z.object({
 - [ ] `README` 增一段：装好之后去哪配置，一句话，不贴截图。
 - [ ] `python scripts/check_docs.py` 通过；提交：`docs: 说明配置入口`。
 
-## 未决（执行时必须先问）
+## 已验证的事实（不要再猜）
 
-- Task 4 的 `describe()` 真实形状没有回读过安装包的运行时输出，只有类型文件里的 `{ base, user, applies, secrets, revision }` 迹象。**Task 4 第一步就是把真实输出抄下来**，形状对不上就停下来说明，不要猜着往下写。
+- `describe()` 形状见 Task 4 上方，实测自 dev 实例。
+- 我们的行在命名空间列表里叫 `shixu-driver-onebot11`，`autoGenerate: true`，`applies: "live"` —— 面板保存后**不需要重启容器**，别用重启来"让它生效"。
+- `accessToken` 在 `secrets` 里是 `{ path: ['accessToken'], set: true }`，值永远拿不到，也不该写回。
+- 客户端插件已经在真实实例里验证过：设置页导航出现「时煦」，中文取自内联 zh 字典。

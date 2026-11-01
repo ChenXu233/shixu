@@ -55,6 +55,30 @@
 - **`settings.section` 的 `label` 可以是 thunk**（`string | (() => string)`），文档写明每次投影重读 —— 所以本地化标题不需要自己订阅语言变化。
 - **React 不在包里**，从 factory 的 `require('react')` 取；写 `React.createElement` 还是 JSX 由你有没有构建步骤决定，与本条无关。
 
+## 设置面（`ctx.remote.settings`）
+
+`describe()` 一次性给出本 profile 里**每个可配置行**的当前状态，实测返回：
+
+```text
+{ ok: true, value: { writable, hasDocument, namespaces: [ {
+    ns,            // = profile patch 里那一行的 id（不是包名）
+    autoGenerate,  // true = 表单由插件导出的 Config 投影而来
+    value,         // 生效值：默认值已填，未设置的字段直接不出现
+    base,          // 基线
+    user,          // 用户覆盖过的那部分
+    applies,       // "live" = 改完即生效，不用重启
+    secrets,       // [{ path: ['accessToken'], set: true }] 只报"设置过"，不给值
+    revision,      // 乐观锁，写回时原样带回
+} ] } }
+```
+
+四条从真实输出里确认的规矩：
+
+- **只有 `.volatile()` 的字段进表单**。同一行里没标 volatile 的字段（例如驱动的 `platform`）在 `value` 里根本不出现 —— 它是身份，不是可调项。
+- **`ns` 是行 id，不是包名**。一个包挂两行就是两个命名空间。
+- **密钥只报状态不报值**：`secrets[].set` 说"这个位置配过了"，值永远是掩码。面板不能把掩码当真实值写回去。
+- **`applies: "live"` 意味着不用重启**。写回成功即生效，验证时不要重启容器去"让它生效"，那会掩盖真正的问题。
+
 ## 硬约束（DSH 官方明文）
 
 违反这六条会在运行时被拒，不是风格问题。
