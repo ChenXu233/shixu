@@ -5,8 +5,18 @@
  * 传输（反向 WebSocket）在 transport.ts，插件装配在 index.ts。
  *
  * 协议本身是公开的：https://github.com/botuniverse/onebot-11
+ *
+ * 形状：**OneBot 的词汇不许出这个文件**。出去的只有 UnifiedEvent 里那几个
+ * 语义字段；认不出的段变成 type='unknown'，原文留在 native。
  */
-import type { ActionDescriptor, Capabilities, MessageSegment, UnifiedEvent } from 'dsh-shixu-channel/contracts'
+import type {
+  ActionDescriptor,
+  Capabilities,
+  MemberChange,
+  MessageSegment,
+  UnifiedEvent,
+  VenueKind,
+} from 'dsh-shixu-channel/contracts'
 
 /** 报文里我们读到的形状。只声明用得到的字段。 */
 export interface RawSegment {
@@ -30,8 +40,6 @@ export interface RawEvent {
   group_id?: number | string
   target_id?: number | string
   operator_id?: number | string
-  comment?: string
-  flag?: string
   sender?: { user_id?: number | string; nickname?: string; card?: string }
 }
 
@@ -41,43 +49,36 @@ export const CAPABILITIES: Capabilities = {
   sendAudio: true,
   sendVideo: true,
   sendFile: false,
-  sendCard: true,
-  sendMarkdown: false,
   sendQuote: true,
   sendMention: true,
   sendMentionAll: true,
-  revokeMessage: true,
-  editMessage: false,
-  fetchHistory: false,
-  uploadFile: false,
+  recall: true,
   maxMessageLength: 4000,
-  passiveReplyOnly: false,
 }
 
+/**
+ * 核心动作：跨平台都说得通的那几个。
+ *
+ * 名字用平台无关的词（mute 不是 ban、set_role 不是 set_admin），因为
+ * 工具名会是 `{platform}_{name}`，词得先在抽象里成立。
+ * 点赞、群名片、贴表情这类只有一家有的东西不进目录 —— 等它们出现再说。
+ */
 export const ACTIONS: ActionDescriptor[] = [
+  {
+    name: 'member_list',
+    description: '列出这个群里的人（id 与显示名）。',
+    parameters: { groupId: { type: 'string', required: true } },
+    risk: 'read',
+    reversible: true,
+    scope: 'venue',
+  },
   {
     name: 'member_info',
     description: '查一个群成员的名片、头衔与入群时间。',
     parameters: { groupId: { type: 'string', required: true }, userId: { type: 'string', required: true } },
     risk: 'read',
     reversible: true,
-    scope: 'chat',
-  },
-  {
-    name: 'group_list',
-    description: '列出机器人所在的所有群。',
-    parameters: {},
-    risk: 'read',
-    reversible: true,
-    scope: 'account',
-  },
-  {
-    name: 'like',
-    description: '给某个人的资料卡点赞。次数会被平台限制。',
-    parameters: { userId: { type: 'string', required: true }, times: { type: 'number' } },
-    risk: 'write',
-    reversible: false,
-    scope: 'account',
+    scope: 'venue',
   },
   {
     name: 'recall',
@@ -85,11 +86,11 @@ export const ACTIONS: ActionDescriptor[] = [
     parameters: { messageId: { type: 'string', required: true } },
     risk: 'write',
     reversible: false,
-    scope: 'chat',
+    scope: 'venue',
   },
   {
-    name: 'ban',
-    description: '禁言一个群成员若干秒，0 表示解除。可再用 0 解除，所以算可撤回。',
+    name: 'mute',
+    description: '禁言一个群成员若干秒，0 表示解除。可以再用 0 解开，所以算可撤回。',
     parameters: {
       groupId: { type: 'string', required: true },
       userId: { type: 'string', required: true },
@@ -97,7 +98,7 @@ export const ACTIONS: ActionDescriptor[] = [
     },
     risk: 'write',
     reversible: true,
-    scope: 'chat',
+    scope: 'venue',
   },
   {
     name: 'kick',
@@ -105,40 +106,66 @@ export const ACTIONS: ActionDescriptor[] = [
     parameters: { groupId: { type: 'string', required: true }, userId: { type: 'string', required: true } },
     risk: 'destructive',
     reversible: false,
-    scope: 'chat',
+    scope: 'venue',
   },
   {
-    name: 'set_card',
-    description: '改群成员的群名片。',
+    name: 'set_role',
+    description: '设或撤某人的管理员身份。可再设回去，所以算可撤回。',
     parameters: {
       groupId: { type: 'string', required: true },
       userId: { type: 'string', required: true },
-      card: { type: 'string', required: true },
+      role: { type: 'string', enum: ['admin', 'member'], required: true },
     },
     risk: 'write',
     reversible: true,
-    scope: 'chat',
+    scope: 'venue',
+  },
+  {
+    name: 'approve_join',
+    description: '同意或拒绝一条入群申请。',
+    parameters: {
+      flag: { type: 'string', required: true },
+      approve: { type: 'boolean', required: true },
+    },
+    risk: 'destructive',
+    reversible: true,
+    scope: 'venue',
+  },
+  {
+    name: 'leave',
+    description: '退出这个群。退出之后要靠别人重新邀请。',
+    parameters: { groupId: { type: 'string', required: true } },
+    risk: 'destructive',
+    reversible: false,
+    scope: 'venue',
   },
 ]
 
-/** 动作名 → OneBot 的 API 名与参数整形。 */
-export const ACTION_API: Record<string, { api: string; build: (params: Record<string, unknown>) => Record<string, unknown> }> = {
+/** 动作名 → OneBot 的 API 名与参数整形。OneBot 的 snake_case 到此为止。 */
+export const ACTION_API: Record<
+  string,
+  { api: string; build: (params: Record<string, unknown>) => Record<string, unknown> }
+> = {
+  member_list: { api: 'get_group_member_list', build: (p) => ({ group_id: asId(p.groupId) }) },
   member_info: {
     api: 'get_group_member_info',
     build: (p) => ({ group_id: asId(p.groupId), user_id: asId(p.userId) }),
   },
-  group_list: { api: 'get_group_list', build: () => ({}) },
-  like: { api: 'send_like', build: (p) => ({ user_id: asId(p.userId), times: Number(p.times ?? 1) }) },
   recall: { api: 'delete_msg', build: (p) => ({ message_id: asId(p.messageId) }) },
-  ban: {
+  mute: {
     api: 'set_group_ban',
     build: (p) => ({ group_id: asId(p.groupId), user_id: asId(p.userId), duration: Number(p.durationSeconds ?? 0) }),
   },
   kick: { api: 'set_group_kick', build: (p) => ({ group_id: asId(p.groupId), user_id: asId(p.userId) }) },
-  set_card: {
-    api: 'set_group_card',
-    build: (p) => ({ group_id: asId(p.groupId), user_id: asId(p.userId), card: String(p.card ?? '') }),
+  set_role: {
+    api: 'set_group_admin',
+    build: (p) => ({ group_id: asId(p.groupId), user_id: asId(p.userId), enable: p.role === 'admin' }),
   },
+  approve_join: {
+    api: 'set_group_add_request',
+    build: (p) => ({ flag: String(p.flag ?? ''), approve: p.approve !== false }),
+  },
+  leave: { api: 'set_group_leave', build: (p) => ({ group_id: asId(p.groupId) }) },
 }
 
 /** OneBot 里 id 是数字，我们的会话里是字符串；空值一律当 0 交给平台去报错。 */
@@ -147,53 +174,61 @@ function asId(value: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/** 群名片优先，其次昵称。都没有就不给字段，别塞空串。 */
-function senderNameOf(raw: RawEvent): { senderName?: string } {
-  const card = raw.sender?.card
-  const nickname = raw.sender?.nickname
-  const name = card !== undefined && card !== '' ? card : nickname
-  return name === undefined || name === '' ? {} : { senderName: name }
-}
-
 /** OneBot 11 的时间戳是秒。 */
 function toMillis(seconds: unknown): number {
   const n = Number(seconds)
   return Number.isFinite(n) ? n * 1000 : Date.now()
 }
 
-/** 一条原始消息 → 统一事件。不认识的报文返回 undefined，不猜。 */
+/** 群名片优先，其次昵称。都没有就不给字段，别塞空串。 */
+function nameOf(raw: RawEvent): { name?: string } {
+  const card = raw.sender?.card
+  const nickname = raw.sender?.nickname
+  const name = card !== undefined && card !== '' ? card : nickname
+  return name === undefined || name === '' ? {} : { name }
+}
+
+/** OneBot 的 notice 里哪几种是人格会因此做事的。其余一律丢掉（原文在 raw 里）。 */
+function memberChangeOf(raw: RawEvent): MemberChange | undefined {
+  switch (raw.notice_type) {
+    case 'group_increase':
+      return 'join'
+    case 'group_decrease':
+      return raw.sub_type === 'kick' || raw.sub_type === 'kick_me' ? 'kick' : 'leave'
+    case 'group_admin':
+      return raw.sub_type === 'set' ? 'promote' : 'demote'
+    default:
+      return undefined
+  }
+}
+
+function venueKindOf(raw: RawEvent): VenueKind {
+  if (raw.message_type === 'group') return 'group'
+  if (raw.message_type === 'guild') return 'channel'
+  return 'private'
+}
+
+/** 一条原始报文 → 统一事件。不认识的返回 undefined，不猜。 */
 export function normalize(raw: RawEvent, platform: string): UnifiedEvent | undefined {
   if (raw === null || typeof raw !== 'object') return undefined
 
-  const self = { platform, accountId: String(raw.self_id ?? '') }
+  const accountId = String(raw.self_id ?? '')
   const timestamp = toMillis(raw.time)
-
-  if (raw.post_type === 'meta_event') {
-    // 心跳太吵，而且内核不需要它来判断在场。
-    if (raw.meta_event_type === 'heartbeat') return undefined
-    return {
-      id: `meta:${self.accountId}:${timestamp}`,
-      type: 'meta',
-      detailType: 'system',
-      self,
-      timestamp,
-      raw,
-    }
-  }
+  const actorId = String(raw.sender?.user_id ?? raw.user_id ?? '')
 
   if (raw.post_type === 'message' || raw.post_type === 'message_sent') {
+    const conversationType = venueKindOf(raw)
+    const conversationId =
+      conversationType === 'private' ? String(raw.user_id ?? '') : String(raw.group_id ?? '')
     const segments = fromOneBotMessage(raw.message, raw.raw_message)
-    const group = raw.message_type === 'group' || raw.message_type === 'guild'
     return {
-      id: `msg:${self.accountId}:${String(raw.message_id ?? '')}`,
+      id: `msg:${accountId}:${String(raw.message_id ?? '')}`,
       type: 'message',
-      detailType: raw.message_type === 'guild' ? 'guild' : group ? 'group' : 'private',
-      ...(raw.sub_type === undefined ? {} : { subType: raw.sub_type }),
-      self,
+      venue: { platform, accountId, conversationId },
+      conversationType,
       timestamp,
-      conversationId: group ? String(raw.group_id ?? '') : String(raw.user_id ?? ''),
-      userId: String(raw.sender?.user_id ?? raw.user_id ?? ''),
-      ...senderNameOf(raw),
+      actor: { id: actorId, ...nameOf(raw) },
+      self: actorId === accountId,
       messageId: String(raw.message_id ?? ''),
       message: segments,
       text: renderText(segments),
@@ -201,35 +236,17 @@ export function normalize(raw: RawEvent, platform: string): UnifiedEvent | undef
     }
   }
 
-  if (raw.post_type === 'notice') {
-    const detailType = String(raw.notice_type ?? '').startsWith('group_')
-      ? 'group'
-      : String(raw.notice_type ?? '').startsWith('friend_')
-        ? 'friend'
-        : 'system'
+  const change = memberChangeOf(raw)
+  if (change !== undefined) {
     return {
-      id: `notice:${self.accountId}:${String(raw.notice_type ?? '')}:${String(raw.user_id ?? '')}:${timestamp}`,
-      type: 'notice',
-      detailType,
-      ...(raw.notice_type === undefined ? {} : { subType: raw.notice_type }),
-      self,
+      id: `member:${accountId}:${change}:${actorId}:${timestamp}`,
+      type: 'member',
+      venue: { platform, accountId, conversationId: String(raw.group_id ?? '') },
+      conversationType: 'group',
       timestamp,
-      ...(raw.group_id === undefined ? {} : { conversationId: String(raw.group_id) }),
-      ...(raw.user_id === undefined ? {} : { userId: String(raw.user_id) }),
-      raw,
-    }
-  }
-
-  if (raw.post_type === 'request') {
-    return {
-      id: `request:${self.accountId}:${String(raw.request_type ?? '')}:${String(raw.user_id ?? '')}:${timestamp}`,
-      type: 'request',
-      detailType: raw.request_type === 'group' ? 'group' : 'friend',
-      ...(raw.request_type === undefined ? {} : { subType: raw.request_type }),
-      self,
-      timestamp,
-      ...(raw.group_id === undefined ? {} : { conversationId: String(raw.group_id) }),
-      ...(raw.user_id === undefined ? {} : { userId: String(raw.user_id) }),
+      actor: { id: actorId },
+      self: actorId === accountId,
+      change,
       raw,
     }
   }
@@ -237,10 +254,12 @@ export function normalize(raw: RawEvent, platform: string): UnifiedEvent | undef
   return undefined
 }
 
-/** OneBot 消息段 → 统一段。认不出的原样留在 native 里，永不丢弃。 */
+/** OneBot 消息段 → 统一段。认不出的变成 unknown，原文留在 native。 */
 export function fromOneBotMessage(message: RawSegment[] | string | undefined, rawMessage?: string): MessageSegment[] {
   if (typeof message === 'string' && message !== '') return [{ type: 'text', data: { text: message } }]
-  if (!Array.isArray(message)) return rawMessage === undefined || rawMessage === '' ? [] : [{ type: 'text', data: { text: rawMessage } }]
+  if (!Array.isArray(message)) {
+    return rawMessage === undefined || rawMessage === '' ? [] : [{ type: 'text', data: { text: rawMessage } }]
+  }
   return message.map(toSegment)
 }
 
@@ -258,15 +277,20 @@ function toSegment(raw: RawSegment): MessageSegment {
       return { type: 'quote', data: { messageId: String(data.id ?? '') }, native: raw }
     case 'record':
       return { type: 'audio', data: { file: String(data.file ?? '') }, native: raw }
-    case 'forward':
-      return { type: 'node', data: { id: String(data.id ?? '') }, native: raw }
     case 'image':
+      return { type: 'image', data: { url: String(data.url ?? ''), file: String(data.file ?? '') }, native: raw }
     case 'video':
+      return { type: 'video', data: { file: String(data.file ?? '') }, native: raw }
+    case 'file':
+      return { type: 'file', data: { file: String(data.file ?? ''), name: String(data.name ?? '') }, native: raw }
     case 'face':
+      return { type: 'unknown', data: {}, label: '表情', native: raw }
     case 'json':
-      return { type, data: { ...data }, native: raw }
+      return { type: 'unknown', data: {}, label: '卡片', native: raw }
+    case 'forward':
+      return { type: 'unknown', data: {}, label: '合并转发', native: raw }
     default:
-      return { type, data: { ...data }, native: raw }
+      return { type: 'unknown', data: {}, label: type, native: raw }
   }
 }
 
@@ -293,11 +317,10 @@ function toOutSegment(segment: MessageSegment): RawSegment {
       return { type: 'record', data: { file: String(data.file ?? '') } }
     case 'video':
       return { type: 'video', data: { file: String(data.file ?? '') } }
-    case 'card':
-    case 'json':
-      return { type: 'json', data: { data: data.data } }
+    case 'file':
+      return { type: 'file', data: { file: String(data.file ?? ''), name: String(data.name ?? '') } }
     default:
-      return { type: segment.type, data: { ...data } }
+      return { type: 'text', data: { text: '' } }
   }
 }
 
@@ -316,6 +339,9 @@ export function renderText(segments: MessageSegment[]): string {
         out += '@全体成员'
         break
       case 'quote':
+        break
+      case 'unknown':
+        out += `[${segment.label ?? '未知'}]`
         break
       default:
         out += `[${segment.type}]`

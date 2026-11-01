@@ -92,7 +92,7 @@ describe('场所 → agent 绑定', () => {
 
   it('不是 message 的事件不唤醒人格（入群通知不该把人叫起来）', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '我加入了群聊', type: 'notice' })
+    driver.simulateInbound({ conversationId: 'g1', type: 'member', change: 'join' })
     await tick()
     expect(agents.created).toHaveLength(0)
   })

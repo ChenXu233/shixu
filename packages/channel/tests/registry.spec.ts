@@ -101,9 +101,7 @@ describe('channels 注册表', () => {
         {
           key: 'qq:bot:g1',
           protocol: 'onebot11',
-          platform: 'qq',
-          accountId: 'bot',
-          conversationId: 'g1',
+          venue: { platform: 'qq', accountId: 'bot', conversationId: 'g1' },
           conversationType: 'group',
         },
         [],
@@ -126,9 +124,7 @@ describe('channels 注册表', () => {
     const session = (protocol: string) => ({
       key: 'qq:bot:g1',
       protocol,
-      platform: 'qq',
-      accountId: 'bot',
-      conversationId: 'g1',
+      venue: { platform: 'qq', accountId: 'bot', conversationId: 'g1' },
       conversationType: 'group' as const,
     })
 
@@ -163,8 +159,9 @@ describe('channels 注册表', () => {
     emit({
       id: '1',
       type: 'message',
-      detailType: 'group',
-      self: { platform: 'qq', accountId: 'bot' },
+      venue: { platform: 'qq', accountId: 'bot', conversationId: 'g1' },
+      conversationType: 'group',
+      self: false,
       timestamp: 0,
       raw: null,
       protocol: 'forged',

@@ -62,17 +62,17 @@
 每个角色的规则表**第一行是兜底**（`{ match: '*', decision: 'deny' }`），后面逐条放开。判定从后往前，所以往后加 = 往后放开：
 
 ```text
-{ match: '*',       decision: 'deny'  }   ← 兜底
-{ match: 'qq_*',    decision: 'ask'   }   ← 群里的动作先问一句
-{ match: 'qq_like', decision: 'allow' }   ← 点赞不问
+{ match: '*',        decision: 'deny'  }   ← 兜底
+{ match: 'qq_*',     decision: 'ask'   }   ← 群里的动作先问一句
+{ match: 'qq_recall', decision: 'allow' }  ← 撤回自己发的消息不问
 ```
 
-`qq_ban` 命中前两条，取最后一条 → `ask`；`qq_like` 命中三条，取最后一条 → `allow`；`mcp__calendar__create` 只命中兜底 → `deny`。
+`qq_kick` 命中前两条，取最后一条 → `ask`；`qq_recall` 命中三条，取最后一条 → `allow`；`mcp__calendar__create` 只命中兜底 → `deny`。
 
 | 能力 | 自主回合（没人指示） | owner 回合 | guest 回合 |
 |---|---|---|---|
 | chat（回话、发消息） | ✅ | ✅ | ✅ |
-| tools · 可逆（点赞、封人、发布站点、删自己的草稿） | ✅ | ✅ | ❌ |
+| tools · 可逆（禁言与解除、设撤管理员、自己退出前的准备动作） | ✅ | ✅ | ❌ |
 | tools · 不可逆且低影响（改本群设置、删本群消息） | ✅ | ✅ | ❌ |
 | tools · 不可逆且高影响（花钱、以你名义承诺、对外不可撤回地泄露私密信息） | ❌ | ✅ | ❌ |
 | files（沙箱写文件、跑命令） | ✅ 仅自己的场所目录 | ✅ | ❌ |
@@ -89,7 +89,7 @@
 
 | 层 | 手段 | 作用 |
 |---|---|---|
-| ① 工具暴露 | `agent.ctx` shadow tools + `ctx.tools.restrict(filter)` | guest 面前根本不出现 `qq_ban` / `persona_deploy` |
+| ① 工具暴露 | `agent.ctx` shadow tools + `ctx.tools.restrict(filter)` | guest 面前根本不出现 `qq_kick` / `persona_deploy` |
 | ② 执行闸门 | `tools/pre-execute` + `ctx.tools.guard()` + capability 校验 | 即使模型硬调也拦下（fail-closed） |
 | ③ 记忆写入 | `persona_remember` 受角色规则限制 | 未识别者不能往 public / core 层写东西 → 防持久化投毒 |
 

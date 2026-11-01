@@ -1,5 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
-import type { Capabilities, ChannelDriver, MessageSegment, UnifiedEvent } from './contracts.js'
+import type {
+  Capabilities,
+  ChannelDriver,
+  MemberChange,
+  MessageSegment,
+  UnifiedEvent,
+  VenueKind,
+} from './contracts.js'
 
 /** Cordis 插件名。 */
 export const name = 'driver-fake'
@@ -14,14 +21,15 @@ export interface SentCall {
 }
 
 export interface FakeDriver extends ChannelDriver {
-  /** 模拟一条入站消息，等价于平台上真有人说话。 */
+  /** 模拟一条入站事件，等价于平台上真有人说话、或真有人进群。 */
   simulateInbound(input: {
     conversationId: string
     userId?: string
-    text: string
-    detailType?: 'private' | 'group'
-    /** 默认 message；notice / request / meta 用来验证「不该唤醒人格的事件」。 */
-    type?: 'message' | 'notice' | 'request' | 'meta'
+    name?: string
+    text?: string
+    conversationType?: VenueKind
+    type?: 'message' | 'member'
+    change?: MemberChange
   }): UnifiedEvent
   /** driver 收到的出站调用，按顺序。 */
   readonly sent: SentCall[]
@@ -32,17 +40,11 @@ export const capabilities: Capabilities = {
   sendAudio: false,
   sendVideo: false,
   sendFile: false,
-  sendCard: false,
-  sendMarkdown: false,
   sendQuote: false,
   sendMention: true,
   sendMentionAll: false,
-  revokeMessage: false,
-  editMessage: false,
-  fetchHistory: false,
-  uploadFile: false,
+  recall: false,
   maxMessageLength: 4096,
-  passiveReplyOnly: false,
 }
 
 /**
@@ -67,7 +69,7 @@ export function apply(ctx: Context): void {
         parameters: { text: { type: 'string', required: true } },
         risk: 'read',
         reversible: true,
-        scope: 'chat',
+        scope: 'venue',
       },
     ],
     onEvent(next) {
@@ -78,17 +80,22 @@ export function apply(ctx: Context): void {
       return { ok: true }
     },
     simulateInbound(input) {
+      const userId = input.userId ?? 'u-test'
+      const segments: MessageSegment[] =
+        input.type === 'member' || input.text === undefined
+          ? []
+          : [{ type: 'text', data: { text: input.text } }]
       const event: UnifiedEvent = {
         id: `fake-${++sequence}`,
         type: input.type ?? 'message',
-        detailType: input.detailType ?? 'group',
-        self: { platform: 'fake', accountId: 'bot', displayName: '时煦' },
+        venue: { platform: 'fake', accountId: 'bot', conversationId: input.conversationId },
+        conversationType: input.conversationType ?? 'group',
         timestamp: Date.now(),
-        conversationId: input.conversationId,
-        ...(input.userId === undefined ? {} : { userId: input.userId }),
+        actor: { id: userId, ...(input.name === undefined ? {} : { name: input.name }) },
+        self: false,
         messageId: `m-${sequence}`,
-        message: [{ type: 'text', data: { text: input.text } }],
-        text: input.text,
+        message: segments,
+        text: input.text ?? '',
         raw: { source: 'fake-driver', sequence },
       }
       if (handler === undefined) throw new Error('fake-driver: 内核还没接管 onEvent')

@@ -62,10 +62,10 @@ export function apply(ctx: Context, config: Config): void {
       if (action === 'send') {
         const { session, segments } = params as { session: ChatSession; segments: MessageSegment[] }
         const message = toOneBotMessage(segments)
-        const isGroup = session.conversationType === 'group' || session.conversationType === 'guild'
+        const isGroup = session.conversationType !== 'private'
         const data = await transport.call(isGroup ? 'send_group_msg' : 'send_private_msg', isGroup
-          ? { group_id: Number(session.conversationId), message }
-          : { user_id: Number(session.conversationId), message })
+          ? { group_id: Number(session.venue.conversationId), message }
+          : { user_id: Number(session.venue.conversationId), message })
         const messageId = (data as { message_id?: unknown } | undefined)?.message_id
         return { ...(messageId === undefined ? {} : { messageId: String(messageId) }), degradations: [] }
       }

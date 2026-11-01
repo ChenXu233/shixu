@@ -1,45 +1,77 @@
 /**
  * 渠道层的词汇表：只有类型与纯函数，没有插件、没有状态。
  *
- * 这份文件是 L1 与 L2 之间唯一的共同语言。driver 实现它，内核消费它，
+ * 这份文件是 L1 与 L2 之间唯一的共同语言。驱动实现它，内核消费它，
  * 两边都不 import 对方的具体实现。
+ *
+ * 设计原则：**只装「人格必须据此行动的事实」**。协议里有、但没人会因此做事的
+ * 东西，一律留在 raw 里，不往这层搬。
  */
 
-export type EventType = 'message' | 'notice' | 'request' | 'meta'
+/** 事件只有两种：有人说了话，或者场所里的人变了。 */
+export type EventType = 'message' | 'member'
 
-export type DetailType = 'private' | 'group' | 'guild' | 'channel' | 'friend' | 'system'
+/** 场所的三种形态。guild 不是场所 —— 频道才是。 */
+export type VenueKind = 'private' | 'group' | 'channel'
 
-/** 平台 + 账号二元组。裸 self_id 会在跨平台同号时相撞。 */
-export interface SelfRef {
-  platform: string
-  accountId: string
-  displayName?: string
-}
+/** 成员变化。平台怎么叫不重要，这五种是人格会因此做事的。 */
+export type MemberChange = 'join' | 'leave' | 'kick' | 'promote' | 'demote'
+
+/** 消息段的核心集合。其余一律 type='unknown' + native，不硬造名字。 */
+export type SegmentType =
+  | 'text'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'file'
+  | 'mention'
+  | 'mentionAll'
+  | 'quote'
+  | 'unknown'
 
 /** 扁平 canonical 段 + native 透传。复杂结构一律走 `native`，不建树。 */
 export interface MessageSegment {
-  type: string
+  type: SegmentType
   data: Record<string, unknown>
+  /** 平台原始段：逃生舱，永不丢弃。 */
   native?: unknown
+  /** `type='unknown'` 时给模型看的名字，如「表情」。 */
+  label?: string
+}
+
+/** 一个「场所」的最小身份：哪个平台、哪个账号、哪个会话、哪个线程。 */
+export interface VenueRef {
+  platform: string
+  accountId: string
+  conversationId: string
+  threadId?: string
+}
+
+/** 事件里涉及的人：发言人、入群人、被操作的人。 */
+export interface Actor {
+  id: string
+  /** 显示名。光有 id 的话人格叫不出人名。 */
+  name?: string
 }
 
 export interface UnifiedEvent {
   /** 平台内唯一，用于去重。 */
   id: string
   type: EventType
-  detailType: DetailType
-  subType?: string
-  self: SelfRef
+  /** 发生在哪个场所。 */
+  venue: VenueRef
+  conversationType: VenueKind
   /** epoch ms */
   timestamp: number
-  conversationId?: string
-  threadId?: string
-  userId?: string
-  /** 发言人的显示名（群名片优先）。人格要叫得出人名，光有 id 不够。 */
-  senderName?: string
+  /** 事件里的人。notice 类可能没有。 */
+  actor?: Actor
+  /** 是不是机器人自己干的。 */
+  self: boolean
   messageId?: string
   message?: MessageSegment[]
   text?: string
+  /** `type='member'` 时才有的：发生了什么变化。 */
+  change?: MemberChange
   /** 平台原始载荷：逃生舱，永不丢弃。 */
   raw: unknown
 }
@@ -53,14 +85,6 @@ export interface KernelEvent extends UnifiedEvent {
   protocol: string
 }
 
-/** 一个「场所」的最小身份：哪个平台、哪个账号、哪个会话、哪个线程。 */
-export interface VenueRef {
-  platform: string
-  accountId: string
-  conversationId: string
-  threadId?: string
-}
-
 /** 会话的稳定键。绑定表、去重、日志都共用这一个公式。 */
 export function venueKey(ref: VenueRef): string {
   const parts = [ref.platform, ref.accountId, ref.conversationId]
@@ -68,48 +92,37 @@ export function venueKey(ref: VenueRef): string {
   return parts.join(':')
 }
 
-/** 事件 → 场所键。没有 conversationId 的事件（notice / meta）不构成场所。 */
-export function venueKeyOf(event: UnifiedEvent): string | undefined {
-  if (event.conversationId === undefined) return undefined
-  return venueKey({
-    platform: event.self.platform,
-    accountId: event.self.accountId,
-    conversationId: event.conversationId,
-    ...(event.threadId === undefined ? {} : { threadId: event.threadId }),
-  })
+/** 事件 → 场所键。事件一定发生在某个场所里。 */
+export function venueKeyOf(event: UnifiedEvent): string {
+  return venueKey(event.venue)
 }
 
-export interface ChatSession extends VenueRef {
-  /** venueKey(session) */
+export interface ChatSession {
+  /** venueKey(venue) */
   key: string
+  venue: VenueRef
   /** 出站走哪条线缆。来自产出该事件的驱动，与 platform 不是一回事。 */
   protocol: string
-  conversationType: 'private' | 'group' | 'guild' | 'channel'
+  conversationType: VenueKind
 }
 
-/** driver 声明的能力。内核据此决定降级，而不是靠猜。 */
+/** driver 声明的能力。内核据此决定降级，而不是靠猜。只声明内核会用来做判断的。 */
 export interface Capabilities {
   sendImage: boolean
   sendAudio: boolean
   sendVideo: boolean
   sendFile: boolean
-  sendCard: boolean
-  sendMarkdown: boolean
   sendQuote: boolean
   sendMention: boolean
   sendMentionAll: boolean
-  revokeMessage: boolean
-  editMessage: boolean
-  fetchHistory: boolean
-  uploadFile: boolean
+  /** 能撤回自己发的消息。 */
+  recall: boolean
   maxMessageLength: number
-  /** 仅被动回复的平台 */
-  passiveReplyOnly: boolean
 }
 
-/** 一个平台一句可执行的声明，内核据此生成模型工具。 */
+/** 一个动作一句可执行的声明，内核据此生成模型工具。 */
 export interface ActionDescriptor {
-  /** 'like' → 工具名 discord_like */
+  /** 平台无关的名字：'kick' → 工具名 qq_kick。 */
   name: string
   /** 给模型看：用途 + 代价 + 前置条件 */
   description: string
@@ -118,7 +131,8 @@ export interface ActionDescriptor {
   risk: 'read' | 'write' | 'destructive'
   /** 动作能否撤回。不能撤回的动作不允许自主执行。 */
   reversible: boolean
-  scope: 'chat' | 'account' | 'guild'
+  /** 'venue' 作用在本会话，'account' 作用在整个账号。 */
+  scope: 'venue' | 'account'
 }
 
 /**
@@ -147,6 +161,7 @@ export interface Account {
   accountId: string
   displayName?: string
   enabled: boolean
+  /** 线缆协议：'onebot11' | 'onebot12' | 'satori' | 'native:discord' */
   protocol: string
   capabilities: Capabilities
 }

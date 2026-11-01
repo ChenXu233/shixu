@@ -25,15 +25,16 @@ interface AgentsLike {
 
 /** 一条入站消息渲染成模型看到的样子。来源事实走前缀，不走 source kind。 */
 export function renderInbound(event: UnifiedEvent): string {
-  const venue = [event.self.platform, event.self.accountId, event.conversationId, event.threadId]
+  const { venue } = event
+  const where = [venue.platform, venue.accountId, venue.conversationId, venue.threadId]
     .filter((part) => part !== undefined && part !== '')
     .join('/')
   const source = [
-    `platform="${event.self.platform}"`,
-    `account="${event.self.accountId}"`,
-    `venue="${venue}"`,
-    `sender="${event.userId ?? 'unknown'}"`,
-    ...(event.senderName === undefined ? [] : [`sender_name="${event.senderName}"`]),
+    `platform="${venue.platform}"`,
+    `account="${venue.accountId}"`,
+    `venue="${where}"`,
+    `sender="${event.actor?.id ?? 'unknown'}"`,
+    ...(event.actor?.name === undefined ? [] : [`sender_name="${event.actor.name}"`]),
     `message="${event.messageId ?? ''}"`,
   ].join(' ')
   return `<dsh_source ${source}/>\n${event.text ?? ''}`
@@ -71,10 +72,10 @@ export function apply(ctx: Context): void {
     }
 
     scoped.on('channels/event', (event: UnifiedEvent) => {
+      // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。
       if (event.type !== 'message') return
       if ((event.text ?? '') === '') return
       const venue = venueKeyOf(event)
-      if (venue === undefined) return
 
       serialize(venue, async () => {
         const handle = await open(venue, agents, live)
