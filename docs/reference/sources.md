@@ -43,6 +43,14 @@ DSH 包内 README（以安装目录为准）：
 | `dsh-im-ecosystem-report.md` | 13 个 IM 插件逐个拆解、协议覆盖、并装冲突与审批应答者竞争、凭据明文乱象、生态空白点 |
 | `dsh-im-ecosystem-digest.md` | 上面那份的摘要版 |
 | dsh-workspace-mesh 仓库的 `docs/spike-p3-bus-plane.md` | 跨节点消息总线的语义与边界、命名空间由 mesh 统一、载荷只过指针 |
+| [Super-agent 调研](../research/super-agent.md) | DeepSeek 2026-10-31 发布的自主 Agent 架构与我们的逐条对照 |
+
+### Super-agent（2026-10-31）
+
+- 设计文章：《Super-agent 设计探索：迈向更自主的 Agent 系统》（DeepSeek Harness 团队发布，本机未能直接访问原文）
+- 原型仓库：<https://github.com/deepseek-ai/dsh-superagent-prototype>（MIT，技术路线验证，非正式产品）
+- 转述与实验数据：IT之家 2026-10-31 21:36 报道 <https://www.ithome.com/1/020/615.htm>
+- **注意**：本机访问 github.com / raw.githubusercontent.com 全部超时，架构描述来自媒体转述，数字按「待核对」对待。
 
 ## 快照口径
 

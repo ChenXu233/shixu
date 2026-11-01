@@ -40,6 +40,7 @@ docs/
 ├── roadmap.md         路线图：唯一一份进度表
 ├── reference/         信息导向：查字段、查判据、查默认值
 ├── explanation/       理解导向：为什么这样设计
+├── research/          外部调研：输入，不参与设计定稿
 └── adr/               决策日志：某一天决定了什么
 ```
 
@@ -75,6 +76,14 @@ docs/
 | [permission-identity.md](explanation/permission-identity.md) | 为什么判权限不看「破坏性」 |
 | [replication.md](explanation/replication.md) | 人格 = 工作区，身体 = 机器 |
 | [ecosystem.md](explanation/ecosystem.md) | 协议供给风险与开源对照 |
+
+## 调研（research）
+
+外部系统的调查与对照。**调研是输入，不是设计** —— 结论要进 `reference/` 或 `explanation/`，这里只留调查本身。
+
+| 文件 | 一句话 |
+|---|---|
+| [super-agent.md](research/super-agent.md) | DeepSeek Super-agent 架构，与我们的逐条对照（印证 / 分歧 / 缺项） |
 
 ## 决策与进度
 

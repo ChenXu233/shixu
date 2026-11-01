@@ -31,3 +31,6 @@ Thumbs.db
 .pnpm-store/
 .cache/
 *.local
+
+# scratch（抓取/拼装用的临时文件）
+.tmp-*
