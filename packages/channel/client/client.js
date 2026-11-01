@@ -26,7 +26,6 @@ window.__ModuleLoader__.load({
     var MESSAGES = {
       zh: {
         'section.label': '时煦',
-        'section.hint': '这里的改动直接写进这个 profile 的配置，与配置文件是同一份数据。',
         'form.unavailable': '这个部署没有配置时煦驱动。',
         'form.readOnly': '当前配置不可写。',
         'form.saveFailed': '保存失败，请重试。',
@@ -43,11 +42,10 @@ window.__ModuleLoader__.load({
         'badge.overridden': '已覆盖',
         'action.reset': '恢复继承值',
         'state.invalid': '这个值不可用',
-        'restart.note': '连接方向与地址改完要重启实例才生效：驱动在启动时读一次就绑定了。',
+        'restart.note': '地址类改动要重启实例才生效。',
       },
       en: {
         'section.label': 'Shixu',
-        'section.hint': "Edits here write into this profile's configuration — the same document the YAML holds.",
         'form.unavailable': 'This deployment does not configure the Shixu driver.',
         'form.readOnly': 'This configuration is read-only.',
         'form.saveFailed': 'Save failed, please retry.',
@@ -64,7 +62,7 @@ window.__ModuleLoader__.load({
         'badge.overridden': 'Overridden',
         'action.reset': 'Reset to inherited',
         'state.invalid': 'This value is not usable',
-        'restart.note': 'Direction and address take effect after the instance restarts: the driver binds them once at start.',
+        'restart.note': 'Address changes take effect after the instance restarts.',
       },
     };
 
@@ -184,7 +182,6 @@ window.__ModuleLoader__.load({
             onSave: props.save,
             onDiscard: props.discard,
             children: [
-              h('p', { key: 'hint' }, t('section.hint')),
               h('div', { key: 'fields' }, [
                 field('host', { numeric: false }),
                 field('port', { numeric: true }),

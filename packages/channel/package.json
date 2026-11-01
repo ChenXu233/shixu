@@ -1,6 +1,6 @@
 {
   "name": "dsh-shixu-channel",
-  "version": "0.0.21",
+  "version": "0.0.22",
   "private": true,
   "type": "module",
   "description": "渠道内核：统一事件、驱动注册表、发放与收回",
