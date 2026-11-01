@@ -47,7 +47,7 @@
 | 项 | 事实 | 依据 |
 |---|---|---|
 | 设计 | 已决议，写成文档 | `docs/` |
-| 实现 | 一条最小切片：`packages/channel`（channels seam + driver-fake） | `packages/channel/src` |
+| 实现 | 一条最小切片：`packages/channel`（channels seam + driver-fake + 身份与权限判定） | `packages/channel/src` |
 | 真实协议接入 | 未开始 | 文件树 |
 | 契约类型包 | 只冻结了渠道层词汇表，其余未冻结 | [roadmap.md](docs/roadmap.md) |
 
@@ -71,7 +71,7 @@ npx vitest run <spec> -t <名字>        # 只跑一条
 | 层边界、bundle 名、依赖方向 | [reference/layering.md](docs/reference/layering.md) |
 | DSH API 能否用、硬约束、原语落点 | [reference/dsh-seams.md](docs/reference/dsh-seams.md) |
 | 事件模型 / 动作目录 / 账号与会话 / 降级 | [reference/contracts-channel.md](docs/reference/contracts-channel.md) |
-| 人格目录、在场类型、token、凭据、发布器、控制台 | [reference/contracts-persona.md](docs/reference/contracts-persona.md) |
+| 人格目录、在场类型、身份与权限、凭据、发布器、控制台 | [reference/contracts-persona.md](docs/reference/contracts-persona.md) |
 | 红线、风险判据、能力矩阵、默认参数、提交策略 | [reference/policies.md](docs/reference/policies.md) |
 | 外部出处、调研登记、快照数字 | [reference/sources.md](docs/reference/sources.md) |
 | 阶段、完成判据、当前进度 | [docs/roadmap.md](docs/roadmap.md) |
@@ -108,6 +108,8 @@ npx vitest run <spec> -t <名字>        # 只跑一条
 | 1 | **防的是哪一种用户可见的破损？** | 「这个函数应该被调用」—— 它被调用了，用户仍可能收不到回复 |
 | 2 | **最小现场是什么？** | 要起十个插件才碰得到的分支，通常是设计问题，不是测试问题 |
 | 3 | **更便宜的检查为什么抓不到？** | 类型系统能挡的、断言写进产品代码就能挡的，不写测试 |
+
+准入只有这三问。**「它可能被改坏」不是理由**：覆盖某一行、杀死某个变异，是变异测试的职责 —— 需要时明确跑一次并记下结论，不用日常测试堆出来。下面的「能变红」是验一条已经该写的守卫，不是为它补一圈变异覆盖。
 
 两条硬要求：
 
