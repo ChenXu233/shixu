@@ -55,6 +55,38 @@
 - **`settings.section` 的 `label` 可以是 thunk**（`string | (() => string)`），文档写明每次投影重读 —— 所以本地化标题不需要自己订阅语言变化。
 - **React 不在包里**，从 factory 的 `require('react')` 取；写 `React.createElement` 还是 JSX 由你有没有构建步骤决定，与本条无关。
 
+## 设置页的原生表单
+
+自己画设置页会立刻和 DSH 长得不一样。原生那套是这样分的：
+
+| 部件 | 来源 | 作用 |
+|---|---|---|
+| `SettingsForm` | primitives | 表单外壳：保存/放弃的页脚、只读提示、保存失败提示 |
+| `SettingsValueField` | primitives | 一个字段：标签、帮助气泡、非法态。**它自己画输入框** |
+| `SettingsSecretField` | primitives | 密钥字段：多一个"已设置/未设置"徽章，永远显示掩码 |
+| `SettingsFormModel` | primitives | 暂存、脏标记、校验、保存 |
+| `ctx.configForms` | 客户端服务 | `get(ns)` 给 scope，`whileServed([ns], fn)` 把槽位挂到"配置可服务"上 |
+
+关键签名（回读安装包 + 运行时探针得到的）：
+
+```text
+SettingsForm        { state, labels, onSave, onDiscard, children }
+                    state  = { available, writable, dirty, invalid, saving, failed }
+                    labels = { unavailable, readOnly, saveFailed, save, saving, discard }
+SettingsValueField  { id, label, help:{label,content}, hint, invalid, numeric,
+                      disabled, ...fieldSnapshot, onEdit(text), onReset() }
+SettingsSecretField { id, label, configured, stateLabel, text, disabled, onEdit, hint }
+SettingsFormModel   new SettingsFormModel(scope, textSpecs, secretSpecs)
+                    model.bind(fn) → store；model.shell() / model.field(name) / model.save()
+settingsTextField(name) → { field, format, parse }   （settingsNumberField 同理）
+scope               ctx.configForms.get(ns).getSnapshot() → { status, value, base, user, revision, writable }
+```
+
+两条踩过的坑：
+
+- **`SettingsValueField` 不吃 children**。把 `<Input>` 塞进去，标签会渲染、输入框是空的——它按 `...fieldSnapshot` + `onEdit` 自己画控件。要用它就必须配 `SettingsFormModel`，绕不过去。
+- **`@deepseek-ai/dsh-client-ui-primitives` 与 `dsh-client-store` 不在 node_modules 里**，它们是浏览器模块表里的条目，只能在 factory 的 `require` 作用域取到，读不到源码——只能靠运行时探针 `String(fn)` 看签名。
+
 ## 设置面（`ctx.remote.settings`）
 
 `describe()` 一次性给出本 profile 里**每个可配置行**的当前状态，实测返回：
