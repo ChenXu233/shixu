@@ -42,6 +42,15 @@ export interface UnifiedEvent {
   raw: unknown
 }
 
+/**
+ * 内核扇出的事件：`protocol` 已由内核盖上。
+ *
+ * 驱动写不出这个字段 —— 它在扇出时被覆盖写入，所以路由不可能被冒充。
+ */
+export interface KernelEvent extends UnifiedEvent {
+  protocol: string
+}
+
 /** 一个「场所」的最小身份：哪个平台、哪个账号、哪个会话、哪个线程。 */
 export interface VenueRef {
   platform: string
@@ -71,6 +80,8 @@ export function venueKeyOf(event: UnifiedEvent): string | undefined {
 export interface ChatSession extends VenueRef {
   /** venueKey(session) */
   key: string
+  /** 出站走哪条线缆。来自产出该事件的驱动，与 platform 不是一回事。 */
+  protocol: string
   conversationType: 'private' | 'group' | 'guild' | 'channel'
 }
 
@@ -108,11 +119,28 @@ export interface ActionDescriptor {
   scope: 'chat' | 'account' | 'guild'
 }
 
+/**
+ * 门 B：没有统一语义的平台能力，由驱动自带的 MCP server 提供。
+ *
+ * 声明里只需要风险等级 —— 内核据此决定要不要问人，不解析 MCP 里的工具。
+ */
+export interface McpServerDeclaration {
+  /** 工具名前缀 `mcp__<serverName>__<tool>`，也是该作用域内的命名空间。 */
+  serverName: string
+  risk: 'read' | 'write' | 'destructive'
+  /** 一句话：为什么这些能力不进动作目录。写给人看。 */
+  why: string
+}
+
 export interface ChannelDriver {
-  id: string
+  /** 注册表键 = 协议，不是平台：同一个 QQ 可以同时挂 OneBot 11 与官方 API。 */
+  protocol: string
   label: string
+  /** 门 A：已抽象的动作。 */
   actions: ActionDescriptor[]
   capabilities: Capabilities
+  /** 门 B：未抽象的能力。 */
+  mcpServers?: McpServerDeclaration[]
   /** 内核把入站事件交给这里，driver 再回调 handler。 */
   onEvent(handler: (event: UnifiedEvent) => void): void
   /** 发一条消息或执行一个动作；由内核按会话路由到这里。 */

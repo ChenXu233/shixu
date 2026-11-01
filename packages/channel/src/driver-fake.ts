@@ -27,7 +27,7 @@ export interface FakeDriver extends ChannelDriver {
   readonly sent: SentCall[]
 }
 
-const capabilities: Capabilities = {
+export const capabilities: Capabilities = {
   sendImage: false,
   sendAudio: false,
   sendVideo: false,
@@ -57,7 +57,7 @@ export function apply(ctx: Context): void {
   let sequence = 0
 
   const driver: FakeDriver = {
-    id: 'fake',
+    protocol: 'fake',
     label: '内存驱动（无网络）',
     capabilities,
     actions: [

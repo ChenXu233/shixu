@@ -1,5 +1,5 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { Account, ChannelDriver, ChatSession, MessageSegment, UnifiedEvent } from './contracts.js'
+import type { Account, ChannelDriver, ChatSession, KernelEvent, MessageSegment } from './contracts.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -8,8 +8,8 @@ declare module '@deepseek-ai/cordis' {
   }
 
   interface Events {
-    /** 任一 driver 产出的统一事件。消费方 inject 'channels' 之后监听它。 */
-    'channels/event'(event: UnifiedEvent): void
+    /** 任一 driver 产出的统一事件，已盖上产出它的协议。消费方 inject 'channels' 之后监听它。 */
+    'channels/event'(event: KernelEvent): void
   }
 }
 
@@ -37,29 +37,30 @@ export class Channels extends Service {
    */
   registerDriver(driver: ChannelDriver): Unregister {
     return this.ctx.effect(() => {
-      if (this.drivers.has(driver.id)) {
-        throw new Error(`channels: driver "${driver.id}" 已经注册过`)
+      if (this.drivers.has(driver.protocol)) {
+        throw new Error(`channels: 协议 "${driver.protocol}" 已经注册过`)
       }
-      this.drivers.set(driver.id, driver)
+      this.drivers.set(driver.protocol, driver)
       driver.onEvent((event) => {
         // 驱动卸载后，socket 可能还会送来最后几条消息（晚到事件）——
         // 已经不在表里的 driver 不许再把事件扇出去，否则热重载会出现幽灵消息。
-        if (this.drivers.get(driver.id) !== driver) return
-        this.ctx.events.emit('channels/event', event)
+        if (this.drivers.get(driver.protocol) !== driver) return
+        // 协议由内核盖章：驱动在事件里塞什么都不会生效（展开顺序决定了它被覆盖）。
+        this.ctx.events.emit('channels/event', { ...event, protocol: driver.protocol })
       })
       return () => {
-        this.drivers.delete(driver.id)
+        this.drivers.delete(driver.protocol)
       }
-    }, `channels.registerDriver(${driver.id})`)
+    }, `channels.registerDriver(${driver.protocol})`)
   }
 
-  getDriver(id: string): ChannelDriver | undefined {
-    return this.drivers.get(id)
+  getDriver(protocol: string): ChannelDriver | undefined {
+    return this.drivers.get(protocol)
   }
 
-  /** 已挂载的 driver，按平台 id 排序，便于日志与诊断。 */
+  /** 已挂载的 driver，按协议排序，便于日志与诊断。 */
   listDrivers(): ChannelDriver[] {
-    return [...this.drivers.values()].sort((a, b) => a.id.localeCompare(b.id))
+    return [...this.drivers.values()].sort((a, b) => a.protocol.localeCompare(b.protocol))
   }
 
   registerAccount(account: Account): Unregister {
@@ -79,13 +80,14 @@ export class Channels extends Service {
   }
 
   /**
-   * 把一条出站消息路由到会话所属平台的 driver。
+   * 把一条出站消息路由到会话所属协议的 driver —— 按协议，不按平台：
+   * 同一个 QQ 可能同时挂着 OneBot 11 与官方 API，两个都得能发出去。
    * 没有对应 driver 时抛错而不是静默丢弃 —— 丢消息比报错更难查。
    */
   async send(session: ChatSession, segments: MessageSegment[]): Promise<unknown> {
-    const driver = this.drivers.get(session.platform)
+    const driver = this.drivers.get(session.protocol)
     if (driver === undefined) {
-      throw new Error(`channels: 没有处理 "${session.platform}" 的 driver（会话 ${session.key}）`)
+      throw new Error(`channels: 没有处理协议 "${session.protocol}" 的 driver（会话 ${session.key}）`)
     }
     return driver.call('send', { session, segments })
   }

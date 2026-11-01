@@ -25,6 +25,8 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | [0002](0002-memory-repo.md) | 记忆仓库策略 | 全部记忆进版本历史，仓库默认私有，不加密 | accepted | P3 |
 | [0003](0003-single-approval-answerer.md) | 审批应答者落点 | 只有 `dsh-shixu-channel` 能应答 | accepted | P0 |
 | [0004](0004-grow-by-friction.md) | 插件怎么拆 | 按摩擦拆，不预先规划插件图 | accepted | P1 |
+| [0005](0005-driver-per-protocol.md) | 驱动按什么切 | 一种线缆协议一个驱动；平台是身份，不是路由键 | accepted | P0 |
+| [0006](0006-capability-two-doors.md) | 未抽象能力怎么进模型视野 | 两条门：动作目录 + MCP；MCP 不是降级 | accepted | P2 |
 | — | 涉及信用的动作类别 | 六项统一归「不可逆 + 高影响」（见[能力矩阵](../reference/policies.md#能力矩阵)） | accepted | P0 |
 | — | 人格与场所 | 唯一一人格；场所多个且可同时在场 | accepted | P2 |
 | — | 跨场所广播 | 延迟投递不打断：运行中的场所 `steer()`，空闲场所靠读穿 | accepted | P3 |
@@ -60,6 +62,7 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | 8 | 身份绑定方式 | 手动 owner 列表 + 配对流程，两者都要 | proposed |
 | 9 | 无权限者怎么对待 | 能正常对话但受限：只读工具 + 只能写本场所记忆 | proposed |
 | 10 | 单主单活还是多副本常驻 | 单主单活：一具持租约的身体连 channel，其余 warm standby | proposed |
+| 11 | 门 B（MCP）工具的风险从哪来 | 驱动用 `mcpServers[].risk` 逐 server 声明，未声明按 `destructive` 处置 | proposed |
 
 ## 什么时候写 ADR
 

@@ -35,6 +35,8 @@ export interface UnifiedEvent {
 }
 ```
 
+`protocol` 不在事件里：它是驱动的身份，由内核在扇出时盖上。驱动写不出来，也就骗不了路由。
+
 **消息段是扁平的**，不做 Koishi 那套树形 `h()`：
 
 ```ts
@@ -77,17 +79,26 @@ export interface ActionDescriptor {
   scope: 'chat' | 'account' | 'guild'
 }
 
+export interface McpServerDeclaration {
+  serverName: string          // 工具名前缀 mcp__<serverName>__<tool>，也是作用域内命名空间
+  risk: 'read' | 'write' | 'destructive'
+  why: string                 // 一句话：为什么这些能力不进动作目录
+}
+
 export interface ChannelDriver {
-  id: 'discord' | 'onebot11' | 'telegram' | string
+  protocol: string            // 'onebot11' | 'onebot12' | 'satori' | 'native:discord'
   label: string
   profile: ChannelProfile     // 渠道人格与忌讳
-  actions: ActionDescriptor[] // 动作目录
+  actions: ActionDescriptor[] // 门 A：动作目录
   capabilities: Capabilities
+  mcpServers?: McpServerDeclaration[]  // 门 B：未抽象能力
   connect(acct: AccountConfig, ctx: DriverCtx): Promise<void>
   disconnect(): Promise<void>
   call(action: string, params: unknown, ctx: CallCtx): Promise<unknown>
   onEvent(h: (ev: RawEvent) => void): void
 }
+
+// 注册表键是 protocol，不是 platform：同一个 QQ 可以同时挂 OneBot 11 与官方 API。
 ```
 
 **1 chat = 1 session = 1 agent ⇒ 工具注册在 `agent.ctx` 上**，由此得到四条：
@@ -100,6 +111,21 @@ export interface ChannelDriver {
 **命名**：`{platform}_{action}`，例 `discord_like`、`qq_group_ban`、`telegram_pin`。多账号同平台不加后缀（作用域已隔离）。
 
 `risk` 字段的默认处置见[判据与默认值](policies.md#动作风险与默认处置)。
+
+## 两条能力通道
+
+能力有两条门，都是原始设计（[ADR-0006](../adr/0006-capability-two-doors.md)）：
+
+| 门 | 声明处 | 工具名 | 内核拿它做什么 |
+|---|---|---|---|
+| A 已抽象 | `actions: ActionDescriptor[]` | `{platform}_{action}` | 按 `risk` / `reversible` 决定放行还是问人 |
+| B 未抽象 | `mcpServers` + 驱动自带的 MCP server | `mcp__<serverName>__<tool>` | 按 `risk` 决定放行还是问人 |
+
+选哪条门是驱动作者的判断。**内核不判断「这个平台该有哪些能力」，只判断「这个动作危险不危险」** —— 一旦它开始维护平台能力清单，抽象就又回到了「把差异全建模」的老路。
+
+门 B 由内核按场所挂载：工具必须是 agent 作用域，所以每个场所一份 MCP 连接。驱动的 server 应优先提供 `streamable-http`，让一个服务进程被多个场所共用；`stdio` 等于每场所一个子进程。
+
+**未抽象不是降级。** 降级是同一个能力在弱平台上表达退化（图片→链接、卡片→纯文本），必须留痕；门 B 是能力压根没有统一语义，它照常工作，只是不走动作目录。把这两件事混为一谈，会让「没抽象 = 坏掉了」，而那正是最贵的误解。
 
 ## 渠道提示词
 
@@ -137,6 +163,7 @@ export interface Account {
 export interface ChatSession {
   key: string                // platform:accountId:conversationId[:threadId]
   platform: string; accountId: string; conversationId: string
+  protocol: string           // 出站走哪条线缆；由产出该事件的驱动决定
   conversationType: 'private' | 'group' | 'guild' | 'channel'
   userId: string
   dshSessionId?: string      // 关联的 DSH session
