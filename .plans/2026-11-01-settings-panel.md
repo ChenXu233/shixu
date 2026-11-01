@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - 客户端是**单文件** `client/client.js`，不上打包器；用 `React.createElement`，JSX 一律不写。
-- 可见文本全部走 locale（`locale/zh.json` + `locale/en.json`），代码里不出现中文字面量。
+- 可见文本全部走 locale 服务。字典**内联**在 `client/client.js` 的 `ctx.locale.register('shixu', { zh, en })` 里：浏览器只能从 `/plugins` 拿到 `client.js` 与 `client.*.js`，包的 `locale/*.json` 它读不到，官方包同样是构建期内联。中文只允许出现在字典对象内部，其它字符串保持英文或 key；`locale/*.json` 只放插件清单会读的 `meta`。
 - 包内不得含任何个人值（IP、域名、令牌、QQ 号、群号）；示例一律用占位符。
 - 不新建设置文件；配置唯一落盘位置是 profile patch 里那一行的 `config`。
 - 每个任务结束都能独立验证；提交前 `pnpm test` 全绿。

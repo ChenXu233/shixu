@@ -38,6 +38,23 @@
 | 凭据 | `ctx.credentials`：`credentialRef`（密钥）/ `credentialKey`（记录：grant \| api-key \| env） | `describe` 永不返回值；`modifyRecord` 是记录唯一写路径 |
 | 持久 | `ctx.storageDomain` | 插件自有数据 |
 
+## Web UI 客户端插件
+
+设置页里的一个分区不是"再写个页面"，是往既有槽位里注册一个组件。要的东西一共四样：
+
+| 位置 | 内容 |
+|---|---|
+| `package.json` | `dsh.client = { platform: 'web', inject: [...] }` + `exports["./client"]`；缺导出会被 client-modules 直接拒 |
+| `client/client.js` | `window.__ModuleLoader__.load({ id: <包名>, factory })`，id 必须等于包名 |
+| 工厂返回值 | `{ inject, apply }`；`inject` 里是客户端服务名，缺一个整个模块不激活 |
+| `apply(ctx)` | `ctx.slots.inject(槽位名, () => ctx.slots.register(选项, 组件))`；资源用 `ctx.effect` 注册并返回清理函数 |
+
+三条实测出来的约束：
+
+- **资源路由只发 `client.js` 与 `client.*.js`**。`/plugins` 按 `CLIENT_CHUNK = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/` 匹配，再加上 combo 查询只拼 `<id>/client.js`。所以包里的 `locale/*.json`、图片、样式表**浏览器都取不到**；官方包是把文案字典在构建期内联进 client.js 的。不打算上打包器，就把字典写成 `ctx.locale.register(ns, { zh, en })` 的对象字面量。
+- **`settings.section` 的 `label` 可以是 thunk**（`string | (() => string)`），文档写明每次投影重读 —— 所以本地化标题不需要自己订阅语言变化。
+- **React 不在包里**，从 factory 的 `require('react')` 取；写 `React.createElement` 还是 JSX 由你有没有构建步骤决定，与本条无关。
+
 ## 硬约束（DSH 官方明文）
 
 违反这六条会在运行时被拒，不是风格问题。

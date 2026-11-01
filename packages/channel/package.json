@@ -23,11 +23,17 @@
       "types": "./lib/binding.d.ts",
       "default": "./lib/binding.js"
     },
+    "./client": {
+      "default": "./client/client.js"
+    },
+    "./locale/*.json": "./locale/*.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
+    "client",
+    "locale",
     "cordis.patch.yml"
   ],
   "scripts": {
@@ -39,6 +45,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   }
 }
