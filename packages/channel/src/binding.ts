@@ -12,7 +12,7 @@ export const inject = ['channels']
  * **之后**按 id 取回同一个 agent。其余一概不碰，换 agent 实现时不该影响绑定。
  *
  * 形状是回读安装包核对过的（dsh-agent / dsh-headless / dsh-llm）：
- *   - `create()` 返回 **{ agent }**，不是 agent 本身；
+ *   - `create()` / `resume()` 都返回 **{ agent }**，不是 agent 本身；
  *   - `get(id)` 直接返回 agent；
  *   - 投递在 **agent.followup(message)** 上，参数是一条完整的 user 消息对象，
  *     不是 `{ content }`；它同步返回，不 await。
@@ -23,7 +23,12 @@ interface AgentLike {
 }
 
 interface AgentsLike {
-  create(options: { sessionId: string }): Promise<{ agent: AgentLike }>
+  /**
+   * 恢复**或**新建：屏幕后是"先尝试从持久化恢复，只有 `SessionPersistenceNotFoundError`
+   * 才走 create"（dsh-agent-loop）。所以这里不用自己判断"有没有历史"——
+   * 用 create 去建一个已存在的 sessionId 会抛错，而那个错会被队列吞掉。
+   */
+  resume(options: { resumeSessionId: string }): Promise<{ agent: AgentLike }>
   get(id: string): AgentLike | undefined
 }
 
@@ -121,7 +126,7 @@ async function open(
   if (existing !== undefined) return existing
 
   const sessionId = `shixu-${venue}`
-  const agent = agents.get(sessionId) ?? (await agents.create({ sessionId })).agent
+  const agent = agents.get(sessionId) ?? (await agents.resume({ resumeSessionId: sessionId })).agent
   live.set(venue, agent)
   return agent
 }
