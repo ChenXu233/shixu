@@ -1,9 +1,9 @@
 # dependencies
 node_modules/
 
-# build output
-lib/
+# build output（lib/ 对齐 dsh 官方包；dist/ 只清旧产物）
 dist/
+lib/
 *.tsbuildinfo
 
 # test / coverage

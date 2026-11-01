@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import Channels from '../dist/channels.js'
-import * as fakeDriver from '../dist/driver-fake.js'
+import Channels from '../lib/channels.js'
+import * as fakeDriver from '../lib/driver-fake.js'
 
 /** 第二条协议的驱动：只记录自己收到的出站调用。 */
 const probeCalls: unknown[] = []

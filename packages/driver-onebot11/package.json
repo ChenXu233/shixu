@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "description": "OneBot 11 驱动：反向 WebSocket，把协议事件归一化成统一事件",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./protocol": { "types": "./lib/protocol.d.ts", "default": "./lib/protocol.js" },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

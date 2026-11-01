@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { authorize, IdentityTable, matchesPattern } from '../dist/permissions.js'
-import type { PermissionSet, TurnActor } from '../dist/permissions.js'
+import { authorize, IdentityTable, matchesPattern } from '../lib/permissions.js'
+import type { PermissionSet, TurnActor } from '../lib/permissions.js'
 
 /**
  * 这里只验证**必要的正确性**：契约里写了什么，就测什么。

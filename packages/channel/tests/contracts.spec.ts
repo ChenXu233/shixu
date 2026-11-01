@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { venueKey, venueKeyOf, type UnifiedEvent } from '../dist/contracts.js'
+import { venueKey, venueKeyOf, type UnifiedEvent } from '../lib/contracts.js'
 
 /**
  * 破损类：**同一个会话被当成两个**，或**两个会话被当成一个**。

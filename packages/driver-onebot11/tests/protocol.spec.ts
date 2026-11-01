@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ACTION_API, ACTIONS, normalize, renderText, toOneBotMessage } from '../dist/protocol.js'
+import { ACTION_API, ACTIONS, normalize, renderText, toOneBotMessage } from '../lib/protocol.js'
 
 /**
  * 只验证必要的正确性：消息落到哪个会话、模型读到什么、发出去变成什么、

@@ -20,20 +20,20 @@ function unwrapExports(exports: any) {
 
 describe('插件入口在装载器眼里必须完好', () => {
   it('driver-fake：装载后仍带着 inject 与 apply', async () => {
-    const plugin = unwrapExports(await import('../dist/driver-fake.js')) as any
+    const plugin = unwrapExports(await import('../lib/driver-fake.js')) as any
     expect(plugin.inject).toEqual(['channels'])
     expect(typeof plugin.apply).toBe('function')
     expect(plugin.name).toBe('driver-fake')
   })
 
   it('binding：装载后仍带着 inject 与 apply', async () => {
-    const plugin = unwrapExports(await import('../dist/binding.js')) as any
+    const plugin = unwrapExports(await import('../lib/binding.js')) as any
     expect(plugin.inject).toEqual(['channels'])
     expect(typeof plugin.apply).toBe('function')
   })
 
   it('channels：默认导出是 Service 子类（自带生命周期）', async () => {
-    const plugin = unwrapExports(await import('../dist/channels.js')) as any
+    const plugin = unwrapExports(await import('../lib/channels.js')) as any
     expect(typeof plugin).toBe('function')
     expect(plugin.name).toBe('Channels')
   })

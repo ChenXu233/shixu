@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
-import Channels from '../dist/channels.js'
-import * as fakeDriver from '../dist/driver-fake.js'
-import * as binding from '../dist/binding.js'
+import Channels from '../lib/channels.js'
+import * as fakeDriver from '../lib/driver-fake.js'
+import * as binding from '../lib/binding.js'
 
 /** 假的 agents 服务：只实现绑定真正用到的两件事（create / get）。 */
 class FakeAgents extends Service {

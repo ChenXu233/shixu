@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { ReverseWs } from '../dist/transport.js'
+import { ReverseWs } from '../lib/transport.js'
 
 /**
  * 传输层只有两件事会出事：不认识的人连进来，以及两个调用的回包串了。
