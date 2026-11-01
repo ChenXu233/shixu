@@ -47,7 +47,7 @@
 | 项 | 事实 | 依据 |
 |---|---|---|
 | 设计 | 已决议，写成文档 | `docs/` |
-| 实现 | 一条最小切片：`packages/channel`（channels seam + driver-fake + 身份与权限判定） | `packages/channel/src` |
+| 实现 | `packages/channel`（seam + driver-fake + 身份与权限判定）、`packages/driver-onebot11`（报文换算 + 反向 WS） | `packages/*/src` |
 | 真实协议接入 | 未开始 | 文件树 |
 | 契约类型包 | 只冻结了渠道层词汇表，其余未冻结 | [roadmap.md](docs/roadmap.md) |
 

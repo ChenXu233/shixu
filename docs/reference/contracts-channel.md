@@ -92,6 +92,7 @@ export interface ChannelDriver {
 }
 
 // 注册表键是 protocol，不是 platform：同一个 QQ 可以同时挂 OneBot 11 与官方 API。
+// 'send' 是内核的出站路径，不走动作目录 —— 人格的回复经它出去，模型调不到它。
 ```
 
 **1 chat = 1 session = 1 agent ⇒ 工具注册在 `agent.ctx` 上**，由此得到四条：

@@ -1,0 +1,9 @@
+# dsh-shixu-driver-onebot11 的挂载清单。
+# 一行 = 一个账号：反向 WebSocket 的监听端口写在行内 config 里。
+- insert:
+    - id: shixu-driver-onebot11
+      name: 'dsh-shixu-driver-onebot11'
+      config:
+        platform: qq
+        port: 6700
+        # accessToken: 存 ctx.credentials，不写在这里

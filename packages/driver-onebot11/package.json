@@ -1,0 +1,24 @@
+{
+  "name": "dsh-shixu-driver-onebot11",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OneBot 11 驱动：反向 WebSocket，把协议事件归一化成统一事件",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "cordis.patch.yml"],
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "dsh-shixu-channel": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": { "@types/ws": "^8.5.10" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
