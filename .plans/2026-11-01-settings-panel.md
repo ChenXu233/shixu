@@ -42,11 +42,12 @@
 
 **Files:** `packages/driver-onebot11/src/transport.ts`、`packages/driver-onebot11/tests/transport.spec.ts`
 
-**Interfaces:**
+**Interfaces**（照现有 `ReverseWs` 的形状统一，计划初稿里的 `send(ChannelAction)` / `forwardWs(...)` 工厂作废——仓库没有 `ChannelAction`，事件已是解析后的对象，两种形状并存会打架）：
+
 ```ts
-export interface Transport { start(): Promise<void>; stop(): Promise<void>; send(action: ChannelAction): Promise<unknown> }
-export interface ForwardOptions { url: string; accessToken?: string }
-export function forwardWs(options: ForwardOptions, onEvent: (raw: string) => void): Transport
+export interface Transport { onEvent(next): void; start(): Promise<void>; stop(): Promise<void>; call(action: string, params: Record<string, unknown>): Promise<unknown>; readonly connected: boolean }
+export interface ForwardWsOptions { url: string; accessToken?: string; reconnectMs?: number }
+export class ForwardWs implements Transport { constructor(options: ForwardWsOptions) }
 ```
 
 - [ ] 写失败测试：起一个本地 `ws` 服务充当 NapCat，`forwardWs` 连上后推一条报文，断言 `onEvent` 收到；服务端 `close()` 后断言重连（间隔 ≥1s，至少重试一次）。
@@ -57,7 +58,7 @@ export function forwardWs(options: ForwardOptions, onEvent: (raw: string) => voi
 
 ## Task 2：驱动声明 Config 并按方向建传输
 
-**Files:** `packages/driver-onebot11/src/config.ts`（新）、`src/index.ts`、`tests/protocol.spec.ts`
+**Files:** `packages/driver-onebot11/src/config.ts`（新）、`src/index.ts`、`tests/driver.spec.ts`（新；「按 mode 选传输」不是协议换算，不塞进 protocol.spec.ts）
 
 **Interfaces:**
 ```ts
