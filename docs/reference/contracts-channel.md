@@ -28,6 +28,7 @@ export interface UnifiedEvent {
   timestamp: number          // epoch ms
   conversationId?: string
   userId?: string
+  senderName?: string         // 发言人的显示名（群名片优先）——只给 id 的话人格叫不出人名
   messageId?: string
   message?: MessageSegment[]
   text?: string

@@ -147,6 +147,14 @@ function asId(value: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+/** 群名片优先，其次昵称。都没有就不给字段，别塞空串。 */
+function senderNameOf(raw: RawEvent): { senderName?: string } {
+  const card = raw.sender?.card
+  const nickname = raw.sender?.nickname
+  const name = card !== undefined && card !== '' ? card : nickname
+  return name === undefined || name === '' ? {} : { senderName: name }
+}
+
 /** OneBot 11 的时间戳是秒。 */
 function toMillis(seconds: unknown): number {
   const n = Number(seconds)
@@ -185,6 +193,7 @@ export function normalize(raw: RawEvent, platform: string): UnifiedEvent | undef
       timestamp,
       conversationId: group ? String(raw.group_id ?? '') : String(raw.user_id ?? ''),
       userId: String(raw.sender?.user_id ?? raw.user_id ?? ''),
+      ...senderNameOf(raw),
       messageId: String(raw.message_id ?? ''),
       message: segments,
       text: renderText(segments),

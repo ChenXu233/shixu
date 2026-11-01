@@ -33,6 +33,7 @@ export function renderInbound(event: UnifiedEvent): string {
     `account="${event.self.accountId}"`,
     `venue="${venue}"`,
     `sender="${event.userId ?? 'unknown'}"`,
+    ...(event.senderName === undefined ? [] : [`sender_name="${event.senderName}"`]),
     `message="${event.messageId ?? ''}"`,
   ].join(' ')
   return `<dsh_source ${source}/>\n${event.text ?? ''}`

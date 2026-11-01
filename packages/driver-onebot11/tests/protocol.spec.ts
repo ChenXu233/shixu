@@ -31,6 +31,7 @@ describe('入站', () => {
     expect(event?.detailType).toBe('group')
     expect(event?.conversationId).toBe('222')
     expect(event?.userId).toBe('333')
+    expect(event?.senderName).toBe('小明')
     expect(event?.messageId).toBe('7')
     expect(event?.self).toEqual({ platform: 'qq', accountId: '10000' })
     expect(event?.timestamp).toBe(1_700_000_000_000)

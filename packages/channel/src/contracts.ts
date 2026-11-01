@@ -35,6 +35,8 @@ export interface UnifiedEvent {
   conversationId?: string
   threadId?: string
   userId?: string
+  /** 发言人的显示名（群名片优先）。人格要叫得出人名，光有 id 不够。 */
+  senderName?: string
   messageId?: string
   message?: MessageSegment[]
   text?: string
