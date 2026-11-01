@@ -57,13 +57,15 @@
 
 ## 设置页的原生表单
 
+> **文档在哪**：`@deepseek-ai/dsh-client-ui-primitives` 是一个独立 npm 包，版本与 dsh 相同。镜像里它是浏览器虚拟模块、没有源码，但 `npm pack` 下来就有 `lib/types/**/*.d.ts` 的 JSDoc —— 那是唯一权威的字段签名，别再靠运行时试。
+
 自己画设置页会立刻和 DSH 长得不一样。原生那套是这样分的：
 
 | 部件 | 来源 | 作用 |
 |---|---|---|
-| `SettingsForm` | primitives | 表单外壳：保存/放弃的页脚、只读提示、保存失败提示 |
-| `SettingsValueField` | primitives | 一个字段：标签、帮助气泡、非法态。**它自己画输入框** |
-| `SettingsSecretField` | primitives | 密钥字段：多一个"已设置/未设置"徽章，永远显示掩码 |
+| `SettingsForm` | primitives | 表单外壳：保存页脚、只读提示、保存失败提示。**没有放弃控件**（离开页面即丢弃） |
+| `SettingsValueField` | primitives | 一个字段：标签、帮助气泡、覆盖徽章、恢复继承值、非法态。它自己画输入框 |
+| `ConfigField` | primitives | 更底层的受控字段（`value/secret/choices/onChange`），不经过表单模型时用 |
 | `SettingsFormModel` | primitives | 暂存、脏标记、校验、保存 |
 | `ctx.configForms` | 客户端服务 | `get(ns)` 给 scope，`whileServed([ns], fn)` 把槽位挂到"配置可服务"上 |
 
@@ -72,20 +74,25 @@
 ```text
 SettingsForm        { state, labels, onSave, onDiscard, children }
                     state  = { available, writable, dirty, invalid, saving, failed }
-                    labels = { unavailable, readOnly, saveFailed, save, saving, discard }
-SettingsValueField  { id, label, help:{label,content}, hint, invalid, numeric,
-                      disabled, ...fieldSnapshot, onEdit(text), onReset() }
-SettingsSecretField { id, label, configured, stateLabel, text, disabled, onEdit, hint }
+                    labels = { unavailable, readOnly, saveFailed, save, saving }
+SettingsValueField  { id, label, hint?, help?:{label,content}, numeric?,
+                      text, overridden, invalid,
+                      overriddenLabel, resetLabel, invalidLabel,
+                      disabled, onEdit(text), onReset() }
 SettingsFormModel   new SettingsFormModel(scope, textSpecs, secretSpecs)
-                    model.bind(fn) → store；model.shell() / model.field(name) / model.save()
-settingsTextField(name) → { field, format, parse }   （settingsNumberField 同理）
+                    field(name) → { text, overridden, invalid }
+                    shell() → 上面那个 state；actions() → { edit, resetField, save, discard }
+                    bind(fn) → store
+settingsTextField(name) / settingsNumberField(name) → { field, format, parse }
+secretSpec          { field, write(text) → Promise<boolean> }   只写，读不到原值
 scope               ctx.configForms.get(ns).getSnapshot() → { status, value, base, user, revision, writable }
 ```
 
-两条踩过的坑：
+**slot 注入怎么变成组件 props**：`inject()` 里返回的 `hooks: { shixuForm: store }` 会被框架变成
+**`useShixuForm(selector)`** 这个 hook prop —— 必须传选择器，不传会抛 `selector is not a function`；
+`edit / resetField / save / discard` 则是直接 props。照 `hooks.xxx` 去取会取不到，而且异常会把整个设置面板带崩。
 
-- **`SettingsValueField` 不吃 children**。把 `<Input>` 塞进去，标签会渲染、输入框是空的——它按 `...fieldSnapshot` + `onEdit` 自己画控件。要用它就必须配 `SettingsFormModel`，绕不过去。
-- **`@deepseek-ai/dsh-client-ui-primitives` 与 `dsh-client-store` 不在 node_modules 里**，它们是浏览器模块表里的条目，只能在 factory 的 `require` 作用域取到，读不到源码——只能靠运行时探针 `String(fn)` 看签名。
+一条踩过的坑：**`SettingsValueField` 不吃 children**。把 `<Input>` 塞进去，标签会渲染、输入框是空的——它按 `...field` 的 `text/overridden/invalid` + `onEdit` 自己画控件，所以必须配 `SettingsFormModel`，绕不过去。
 
 ## 设置面（`ctx.remote.settings`）
 
