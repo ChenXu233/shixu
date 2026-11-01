@@ -116,6 +116,8 @@ export function verify(token: CapabilityToken, action: { scope: CapabilityScope;
 }
 ```
 
+`action.name` 对门 B 的工具是 `mcp__<serverName>__<tool>`。矩阵里可以按 server 前缀授权（`mcp__calendar__*`）—— 我们本来就不认识单个工具，按 server 授才是诚实的粒度。
+
 模型看不到 token，也不需要看到 —— 它只看到「当前对话者的角色」这样的提示文本；**执行判定一律走验签后的 token**。
 
 ## 动作凭据
