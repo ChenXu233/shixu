@@ -92,9 +92,13 @@ export type CapabilityScope =
   | 'memory:public'   // 允许写入公开层记忆
   | 'memory:core'     // 允许写入自我层记忆
 
+/** 出厂角色只是种子；用户可以加自己的（'vip'、'运营'、'客户'…）、改名、删掉不用的。 */
+export type BuiltinRole = 'owner' | 'trusted' | 'member' | 'guest' | 'autonomous'
+export type Role = string
+
 export interface CapabilityToken {
   readonly subject: string      // 平台用户 id（如 qq uin / discord id）
-  readonly role: 'owner' | 'trusted' | 'member' | 'guest'
+  readonly role: Role
   readonly scopes: ReadonlySet<CapabilityScope>
   readonly venueId: string
   readonly epoch: number         // 人格权限版本，改权限即失效旧 token
@@ -115,11 +119,8 @@ export interface PermissionRule {
   decision: Decision
 }
 
-/** 触发者角色 + 自主回合。自主回合没有发起人（定时、做梦、主动发言），单列一格。 */
-export type ActorRole = CapabilityToken['role'] | 'autonomous'
-
 /** 角色 → 规则。用户可改；改了就递增 epoch，让旧 token 全废。 */
-export type PermissionMatrix = Record<ActorRole, PermissionRule[]>
+export type PermissionMatrix = Record<Role, PermissionRule[]>
 
 export function decide(
   token: CapabilityToken,
@@ -136,6 +137,12 @@ export function decide(
 4. `native` 也没有 → `deny`。
 
 规则顺序与出厂值见[判据与默认值](policies.md#风险只提供默认值)。
+
+### 角色是用户可扩展的
+
+内置角色只是种子。用户可以加新角色、改名字、删掉不用的 —— 但**落点只有一个**：身份表里查不到的 subject 一律落进**默认角色**（出厂叫 `guest`）。这个落点删不掉，权限也不能被配成更高，它是[红线 4](policies.md#红线)的载体。
+
+角色之间**不做继承**。继承会把「取最严」变成算一条链，链上任何一处配错都是静默放大权限；平铺的规则列表，出问题只看一行。`autonomous` 是其中一个普通角色 —— 定时、做梦、主动发言这些回合没有发起人，不借用任何人的角色。
 
 `action.name` 对门 B 的工具是 `mcp__<serverName>__<tool>`。矩阵里可以按 server 前缀授权（`mcp__calendar__*`）—— 我们本来就不认识单个工具，按 server 授才是诚实的粒度。
 

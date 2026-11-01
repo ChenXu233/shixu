@@ -21,11 +21,19 @@
 ```ts
 type Decision = 'allow' | 'ask' | 'deny'
 interface PermissionRule { match: string; decision: Decision }   // match: '{platform}_{action}' · 'mcp__<serverName>__*' · '*'
-type ActorRole = 'owner' | 'trusted' | 'member' | 'guest' | 'autonomous'
-type PermissionMatrix = Record<ActorRole, PermissionRule[]>
+type Role = string                                                // 出厂五个是种子，用户可以加
+type PermissionMatrix = Record<Role, PermissionRule[]>
 ```
 
 `autonomous` 也要占一格：定时、做梦、主动发言这些回合没有发起人，它们的权限不能借用任何人的角色 —— 否则「机器人自己决定做的事」会隐式继承主人的权限。
+
+## 角色是用户可扩展的，但落点只有一个
+
+内置角色是种子，不是封闭集合。用户可以加「运营」「客户」「VIP」，可以改名，可以删掉不用的 —— 权限系统不该规定一个社群分几种人。
+
+但**必须有一个落点**：身份表里查不到的 subject 一律落进默认角色（出厂叫 `guest`）。这个落点删不掉、补不了配置、也不能被配得更高，它在代码里硬拦。红线 4 就挂在这里 —— 否则「新建一个角色、把陌生人放进去、权限全开」就能绕过它，而绕过是静默的。
+
+角色之间**不做继承**。继承会把「取最严」变成算一条链，链上任何一处配错都是静默放大；平铺的规则列表，出问题只看一行。
 
 一次工具调用的判定顺序：
 
