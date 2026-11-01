@@ -35,7 +35,7 @@ Typert 子系统已提供远程方法调用：lookup / Context 声明、`Invocat
 | AstrBot | OneBot 系机器人框架（DSH 侧有 `dsh-astrbot-ingress` 反向接入） | 反向接入的例子：说明「别人做前端、DSH 做大脑」这条路是通的 |
 | dsh-workspace-mesh（本机自研） | 跨机工作区网格 + 租约 fencing + 插件供给 + 跨节点插件间原语（bus 平面 spike） | 提供「身体」与「搬家」的能力，缺人格语义 |
 
-**结论**：组件都有先例可抄，但「DSH / Cordis 宿主 + 动作目录自动生成工具 + 人格在场集合 + 每消息 capability token + 记忆版本化」这个组合没有人做过。
+**结论**：组件都有先例可抄，但「DSH / Cordis 宿主 + 动作目录自动生成工具 + 人格在场集合 + 每回合按角色判定 + 记忆版本化」这个组合没有人做过。
 
 ### 三条最影响设计的市场事实
 

@@ -60,7 +60,7 @@ docs/
 | [layering.md](reference/layering.md) | L0–L4 各层边界与 bundle 形态 |
 | [dsh-seams.md](reference/dsh-seams.md) | DSH 给了什么、六条硬约束、原语落点 |
 | [contracts-channel.md](reference/contracts-channel.md) | 事件模型、动作目录、账号绑定、降级 |
-| [contracts-persona.md](reference/contracts-persona.md) | 工作区布局、在场、token、凭据、发布器、控制台 |
+| [contracts-persona.md](reference/contracts-persona.md) | 工作区布局、在场、身份与权限、凭据、发布器、控制台 |
 | [policies.md](reference/policies.md) | 红线、风险判据、能力矩阵、默认参数 |
 | [sources.md](reference/sources.md) | 出处、调研登记、快照口径 |
 

@@ -111,12 +111,12 @@ export interface ChannelDriver {
 
 | 门 | 声明处 | 工具名 | 内核拿它做什么 |
 |---|---|---|---|
-| A 已抽象 | `actions: ActionDescriptor[]` | `{platform}_{action}` | 验 token；按 `risk` / `reversible` 决定放行还是问人 |
-| B 未抽象 | 驱动自带的 MCP server，**契约里不出现** | `mcp__<serverName>__<tool>` | 只验 token；**不判风险**、不分级、不施闸 |
+| A 已抽象 | `actions: ActionDescriptor[]` | `{platform}_{action}` | 查角色规则；没命中就用 `risk` 换来的原生默认 |
+| B 未抽象 | 驱动自带的 MCP server，**契约里不出现** | `mcp__<serverName>__<tool>` | 查同一套角色规则；**不判风险**、不分级、不施闸 |
 
 选哪条门是驱动作者的判断。**内核不判断「这个平台该有哪些能力」** —— 一旦它开始维护平台能力清单，抽象就又回到了「把差异全建模」的老路。
 
-门 B 不带任何分级、豁免或白名单：能写出风险等级的，就已经抽象完了，那它该进动作目录。它剩下的只有授权 —— 而授权不需要知道工具做什么，只需要知道说话的是谁，所以走的是与门 A 同一套 [capability token](contracts-persona.md#capability-token)：`scope: 'tools'`，`name` 匹配 `mcp__<serverName>__*` 或单个工具名，按角色矩阵展开。**guest 默认拒绝。**
+门 B 不带任何分级、豁免或白名单：能写出风险等级的，就已经抽象完了，那它该进动作目录。它剩下的只有授权 —— 而授权不需要知道工具做什么，只需要知道说话的是谁，所以走的是与门 A 同一套 [角色矩阵](contracts-persona.md#身份与权限)：按工具名匹配 `mcp__<serverName>__*` 或单个工具名。**未识别者默认拒绝。**
 
 执行时能跑多远是另一回事，归宿主：沙箱模式与审批策略捆成的权限档位（仅工作区 / 完全权限）。**挂载只是资源决定，不是授权** —— 它决定这个场所要不要为一条 MCP 连接付成本。
 

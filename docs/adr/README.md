@@ -28,10 +28,11 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | [0005](0005-driver-per-protocol.md) | 驱动按什么切 | 一种线缆协议一个驱动；平台是身份，不是路由键 | accepted | P0 |
 | [0006](0006-capability-two-doors.md) | 未抽象能力怎么进模型视野 | 两条门：动作目录 + MCP；MCP 不是降级 | accepted | P2 |
 | [0007](0007-rbac-carries-authorization-and-risk.md) | 谁决定放行、问人还是拒绝 | 角色矩阵；风险只提供默认值 | accepted | P0 |
+| [0008](0008-permission-has-one-source.md) | 权限怎么表达 | 只有规则表与一个钩子，不另立函数与凭据 | accepted | P0 |
 | — | 涉及信用的动作类别 | 六项统一归「不可逆 + 高影响」（见[出厂矩阵](../reference/policies.md#出厂矩阵)） | accepted | P0 |
 | — | 人格与场所 | 唯一一人格；场所多个且可同时在场 | accepted | P2 |
 | — | 跨场所广播 | 延迟投递不打断：运行中的场所 `steer()`，空闲场所靠读穿 | accepted | P3 |
-| — | 权限模型 | 每条消息自带服务端签发的 capability token，按回合继承，三层收紧 | accepted | P0 |
+| — | 权限模型 | 先判发起者（subject / role / venueId），再查角色规则，三层收紧（见 [0007](0007-rbac-carries-authorization-and-risk.md) 与 [0008](0008-permission-has-one-source.md)） | accepted | P0 |
 | — | 发布能力 | 属人格层：Publisher 抽象 + `persona_deploy`；四档交付降级链 | accepted | P3 |
 | — | 记忆版本化 | 人格工作区即 git 仓库；夜间做梦整理并提交 | accepted | P3 |
 | — | 消息模型 | 扁平 canonical 段 + native 透传；渠道来源走消息前缀，不用 source kind | accepted | P0 |

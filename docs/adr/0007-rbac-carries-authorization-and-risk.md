@@ -3,7 +3,7 @@
 > **状态**：`accepted`
 > **日期**：2026-11-01
 > **落地阶段**：P0
-> **上游材料**：[capability token](../reference/contracts-persona.md#capability-token)、[判据与默认值](../reference/policies.md)、[ADR-0006](0006-capability-two-doors.md)
+> **上游材料**：[身份与权限](../reference/contracts-persona.md#身份与权限)、[判据与默认值](../reference/policies.md)、[ADR-0006](0006-capability-two-doors.md)
 
 ## 背景
 
@@ -37,10 +37,11 @@ type PermissionMatrix = Record<Role, PermissionRule[]>
 
 一次工具调用的判定顺序：
 
-1. **token 校验**（过期 / `epoch` / `scope` / 验签）不过 → `deny`；
-2. 命中的规则取**最严**（`deny` > `ask` > `allow`）；
-3. 没命中 → 工具的原生默认；
-4. 原生默认也没有（门 B）→ `deny`。
+1. 命中的规则取**最严**（`deny` > `ask` > `allow`）；
+2. 没命中 → 工具的原生默认；
+3. 原生默认也没有（门 B）→ `deny`。
+
+（原先还有一步 token 校验与一层 `decide()` 包装，已被 [ADR-0008](0008-permission-has-one-source.md) 删掉。）
 
 用户给自己的角色写一条 `{ match: '*', decision: 'allow' }`，就是「我的群我说了算，全放手」。那是他的权利，我们不做假设。
 
@@ -59,11 +60,11 @@ type PermissionMatrix = Record<Role, PermissionRule[]>
 
 - **红线 5 降级。**「凭据永远要留」不变（每个对外动作必须生成 `ActionReceipt`）；但「无 undo 的动作只能走审批」从红线变成**默认值**，可被矩阵覆盖。理由：那是偏好，不是安全属性 —— 用户授权自己的身体去做不可逆的事，本来就是权利。
 - **红线 4 不变。** guest 的下限不是偏好，是边界：陌生人说的话本来就不是授权（红线 3），所以他的账没人替他付得起。
-- `verify(): boolean` 表达不了 `ask`，改成 `decide(): Decision`。词表与 DSH 的 `tools/pre-execute` 闸门同构（`allow` / `ask` / `deny`），映射是恒等。
+- 判定词表用 `allow` / `ask` / `deny`，与 DSH 的 `tools/pre-execute` 闸门同构，映射是恒等。`decide()` 这层包装后来也被 [ADR-0008](0008-permission-has-one-source.md) 删了。
 - [ADR-0001](0001-risk-criterion.md) 的判据（可逆性 × 影响半径）不变，但它影响清单里的最后一条「不可逆 ⇒ 自主时直接拒绝」被本决策放宽为「出厂默认问人」。
 - 出厂矩阵见[判据与默认值](../reference/policies.md#出厂矩阵)，它是默认值，不是规则。
 
 ## 指针
 
-- 矩阵与 `decide()` 的形状：[capability token](../reference/contracts-persona.md#capability-token)
+- 矩阵与判定三步：[身份与权限](../reference/contracts-persona.md#身份与权限)
 - 出厂矩阵与判定顺序：[判据与默认值](../reference/policies.md#出厂矩阵)

@@ -16,7 +16,7 @@
 |---|---|---|
 | 1 | **只有 `dsh-shixu-channel` 实现 `approval/request` 应答者**，driver 不得自己监听 | 全仓搜 `approval/request` 监听，除内核外应为 0 |
 | 2 | **记忆写入只有一个入口**（记忆服务），模型不能绕过去直接写文件 | 写入路径只有一处；工具参数无法指定落盘位置 |
-| 3 | **身份判定在服务端，与模型说了什么无关**；模型的同意永远不是授权 | 任何特权动作执行前必须验签 token，不看对话内容 |
+| 3 | **身份判定在服务端，与模型说了什么无关**；模型的同意永远不是授权 | 判定只读服务端状态（身份表 + 规则表），不读对话内容 |
 | 4 | **未识别者的落点永远拿不到「不可逆 + 高影响」能力**；这个落点删不掉，也不能被配成更高 | 身份表里查不到的 subject 落进默认角色；该角色在代码里硬拦，不读配置 |
 | 5 | **每个对外动作必须留凭据**；「可撤回」必须真的可撤回（有快照、能一键回滚） | 动作目录必须声明 `reversible`；`ActionReceipt` 无条件生成 |
 
@@ -30,16 +30,15 @@
 | write | `allow` |
 | destructive | `ask` |
 
-真正生效的是角色矩阵里那一格；没有格就用这张表；连这张表都没有（门 B 的工具）就是 `deny`。矩阵形状见[capability token](contracts-persona.md#capability-token)，决策理由见 [ADR-0007](../adr/0007-rbac-carries-authorization-and-risk.md)。
+真正生效的是角色矩阵里那一格；没有格就用这张表；连这张表都没有（门 B 的工具）就是 `deny`。矩阵形状见[身份与权限](contracts-persona.md#身份与权限)，决策理由见 [ADR-0007](../adr/0007-rbac-carries-authorization-and-risk.md)。
 
 > DSH 插件不受沙箱保护（以本机权限运行，不在 DSH 工具审批沙箱内）。真正的权限边界是「驱动能调用哪些平台动作」+「这个角色被允许用哪些」，前者由驱动声明，后者由用户配。
 
-**判定顺序（四步，缺一步都算未授权）：**
+**判定三步：**
 
-1. token 校验失败（过期 / `epoch` 不符 / `scope` 不覆盖 / 验签不过）→ `deny`；
-2. 命中矩阵的规则取最严（`deny` > `ask` > `allow`）；
-3. 没命中 → 上表的原生默认；
-4. 原生默认也没有（门 B）→ `deny`。
+1. 命中矩阵的规则取最严（`deny` > `ask` > `allow`）；
+2. 没命中 → 上表的原生默认；
+3. 原生默认也没有（门 B）→ `deny`。
 
 `ask` 落到 `tools/pre-execute` 的闸门 → 推到会话所属聊天里问人；`deny` 直接把理由回给模型，让它换条路。
 
@@ -80,7 +79,7 @@
 |---|---|---|
 | ① 工具暴露 | `agent.ctx` shadow tools + `ctx.tools.restrict(filter)` | guest 面前根本不出现 `qq_ban` / `persona_deploy` |
 | ② 执行闸门 | `tools/pre-execute` + `ctx.tools.guard()` + capability 校验 | 即使模型硬调也拦下（fail-closed） |
-| ③ 记忆写入 | `persona_remember` 的 scope 受 token 限制 | guest 不能往 public / core 层写东西 → 防持久化投毒 |
+| ③ 记忆写入 | `persona_remember` 受角色规则限制 | 未识别者不能往 public / core 层写东西 → 防持久化投毒 |
 
 外加沙箱：`files` 能力决定该回合能否写文件 / 起进程。
 

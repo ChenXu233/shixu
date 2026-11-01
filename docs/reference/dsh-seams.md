@@ -74,4 +74,4 @@
 | 静态托管 | 独立服务进程（`ctx.shell` / `ctx.subprocess` / jobs 子系统，`ctx.effect` 回收）；`ctx.webServer` 不适合 |
 | 自有域名发布 | Publisher 抽象 + `persona_deploy` 工具 + 内核唯一审批应答者 |
 | 权限 | `ctx.permissionPresets`（sandbox mode + approval policy 打包）、`ctx.approval`（fail-closed）、`ctx.tools.restrict` / `guard` / `pre-execute`、`ctx.commands`（owner 特权命令不经模型） |
-| 身份 | 自建的 capability token（服务端 HMAC 签发，按回合继承，权限改版即失效） |
+| 身份 | 自建：每回合解析 `subject` / `role` / `venueId`；判定只读服务端状态，不签名（[ADR-0008](../adr/0008-permission-has-one-source.md)） |

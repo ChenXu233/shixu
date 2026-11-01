@@ -80,63 +80,40 @@ interface VenuePresence {
 
 写路径唯一：所有写入经记忆服务，见[判据与默认值](policies.md#红线)。同步语义见[跨场所记忆](../explanation/memory.md)。
 
-## capability token
+## 身份与权限
+
+两件事，两个类型，没有第三个。
 
 ```ts
-export type CapabilityScope =
-  | 'chat'            // 允许普通对话
-  | 'tools'           // 允许触发哪些平台动作（按动作名细分）
-  | 'files'           // 允许在沙箱里写文件 / 跑命令
-  | 'publish'         // 允许发布站点
-  | 'admin'           // 允许改人设 / 预算 / 白名单
-  | 'memory:public'   // 允许写入公开层记忆
-  | 'memory:core'     // 允许写入自我层记忆
-
 /** 出厂角色只是种子；用户可以加自己的（'vip'、'运营'、'客户'…）、改名、删掉不用的。 */
 export type BuiltinRole = 'owner' | 'trusted' | 'member' | 'guest' | 'autonomous'
 export type Role = string
 
-export interface CapabilityToken {
-  readonly subject: string      // 平台用户 id（如 qq uin / discord id）
-  readonly role: Role
-  readonly scopes: ReadonlySet<CapabilityScope>
-  readonly venueId: string
-  readonly epoch: number         // 人格权限版本，改权限即失效旧 token
-  readonly issuedAt: number
-  readonly expiresAt: number
-  readonly mac: string           // HMAC(secret, 上述字段)，secret 存 ctx.credentials
+/** 一个回合的发起者。三个字段，别的不要。 */
+export interface TurnActor {
+  subject: string   // 平台用户 id；身份表的键
+  role: Role        // 查出来的角色，本回合内固定；查不到 = 默认角色
+  venueId: string   // 防跨场所冒用：A 群的身份不能在 B 群用
 }
-```
 
-判定不是布尔：`ask` 是一等结果（它落到审批闸门）。词表与 DSH 的 `tools/pre-execute` 同构，映射是恒等。
-
-```ts
-export type Decision = 'allow' | 'ask' | 'deny'
-
-/** 一条授权规则。match 支持 `*` 通配：'{platform}_{action}' · 'mcp__<serverName>__*' · '*' */
+/** 一条规则：这个角色对这个工具名给一个决定。match 支持 `*` 通配。 */
 export interface PermissionRule {
-  match: string
-  decision: Decision
+  match: string     // '{platform}_{action}' · 'mcp__<serverName>__*' · '*'
+  decision: 'allow' | 'ask' | 'deny'
 }
 
-/** 角色 → 规则。用户可改；改了就递增 epoch，让旧 token 全废。 */
 export type PermissionMatrix = Record<Role, PermissionRule[]>
-
-export function decide(
-  token: CapabilityToken,
-  action: { scope: CapabilityScope; name?: string },
-  native?: Decision,                                          // 工具的原生默认；门 B 没有
-): Decision
 ```
 
-四步，缺一步都算未授权：
+判定三步：
 
-1. token 校验失败（过期 / `epoch` 不符 / `scope` 不覆盖 / 验签不过）→ `deny`；
-2. 命中的规则取最严（`deny` > `ask` > `allow`）；
-3. 没命中 → `native`；
-4. `native` 也没有 → `deny`。
+1. 命中的规则取最严（`deny` > `ask` > `allow`）；
+2. 没命中 → 工具的原生默认（`risk` 的映射，见[判据与默认值](policies.md#风险只提供默认值)）；
+3. 原生默认也没有（门 B 的工具）→ `deny`。
 
-规则顺序与出厂值见[判据与默认值](policies.md#风险只提供默认值)。
+**没有 `decide()` 这个函数。** 它要做的事就是 `tools/pre-execute` 这个钩子要做的事，而那个钩子的返回值本来就是 `allow` / `ask` / `deny`。多起一个名字，就多一份要同步的语义 —— 判定写在监听里，规则表是配置，仅此两样。
+
+**身份里没有签名、没有 `epoch`、没有 `scopes`。** 进程内没有对手：能改这三个字段的代码，本来也能改任何东西。签名等跨进程的线缆协议出现再加（[待拍板](../adr/README.md#待拍板)第 1 项），那才是它第一次有意义的时候。
 
 ### 角色是用户可扩展的
 
@@ -146,7 +123,7 @@ export function decide(
 
 `action.name` 对门 B 的工具是 `mcp__<serverName>__<tool>`。矩阵里可以按 server 前缀授权（`mcp__calendar__*`）—— 我们本来就不认识单个工具，按 server 授才是诚实的粒度。
 
-模型看不到 token，也不需要看到 —— 它只看到「当前对话者的角色」这样的提示文本；**执行判定一律走验签后的 token**。
+模型看不到这三个字段，也不需要看到 —— 它只看到「当前对话者的角色」这样的提示文本；**执行判定只读服务端状态，不读对话内容**。
 
 ## 动作凭据
 
