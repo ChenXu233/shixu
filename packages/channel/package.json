@@ -1,21 +1,44 @@
 {
   "name": "dsh-shixu-channel",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "渠道内核：统一事件、驱动注册表、发放与收回",
   "main": "lib/channels.js",
   "types": "lib/channels.d.ts",
   "exports": {
-    ".": { "types": "./lib/channels.d.ts", "default": "./lib/channels.js" },
-    "./contracts": { "types": "./lib/contracts.d.ts", "default": "./lib/contracts.js" },
-    "./driver-fake": { "types": "./lib/driver-fake.d.ts", "default": "./lib/driver-fake.js" },
-    "./binding": { "types": "./lib/binding.d.ts", "default": "./lib/binding.js" },
+    ".": {
+      "types": "./lib/channels.d.ts",
+      "default": "./lib/channels.js"
+    },
+    "./contracts": {
+      "types": "./lib/contracts.d.ts",
+      "default": "./lib/contracts.js"
+    },
+    "./driver-fake": {
+      "types": "./lib/driver-fake.d.ts",
+      "default": "./lib/driver-fake.js"
+    },
+    "./binding": {
+      "types": "./lib/binding.d.ts",
+      "default": "./lib/binding.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "cordis.patch.yml"],
-  "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@deepseek-ai/cordis": "~4.0.5" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
 }

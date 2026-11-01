@@ -26,9 +26,6 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ~4.0.5
         version: 4.0.5
-      dsh-shixu-channel:
-        specifier: workspace:*
-        version: link:../channel
       ws:
         specifier: ^8.18.0
         version: 8.22.1
@@ -36,6 +33,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.2
+      dsh-shixu-channel:
+        specifier: workspace:*
+        version: link:../channel
 
 packages:
 

@@ -13,13 +13,14 @@ class FakeAgents extends Service {
     super(ctx, 'agents')
   }
 
+  // 形状对齐真实 dsh：create() 返回 { agent }，投递在 agent.followup(消息对象) 上。
   async create({ sessionId }: { sessionId: string }) {
     if (this.handles.has(sessionId)) throw new Error('session 已存在：' + sessionId)
     const calls: any[] = []
-    const handle = { sessionId, calls, followup: async (input: any) => { calls.push(input) } }
+    const agent = { sessionId, calls, followup: (message: any) => { calls.push(message) } }
     this.created.push(sessionId)
-    this.handles.set(sessionId, handle)
-    return handle
+    this.handles.set(sessionId, agent)
+    return { agent }
   }
 
   get(id: string) {

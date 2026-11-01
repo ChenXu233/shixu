@@ -7,18 +7,43 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
-    "./protocol": { "types": "./lib/protocol.d.ts", "default": "./lib/protocol.js" },
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./protocol": {
+      "types": "./lib/protocol.d.ts",
+      "default": "./lib/protocol.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "cordis.patch.yml"],
-  "scripts": { "build": "tsc -p tsconfig.json" },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
-    "dsh-shixu-channel": "workspace:*",
     "ws": "^8.18.0"
   },
-  "devDependencies": { "@types/ws": "^8.5.10" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "dsh-shixu-channel": "workspace:*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "dsh-shixu-channel": "*"
+  },
+  "peerDependenciesMeta": {
+    "dsh-shixu-channel": {
+      "optional": true
+    }
+  }
 }

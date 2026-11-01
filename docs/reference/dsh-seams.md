@@ -24,8 +24,8 @@
 
 | 能力 | API | 备注 |
 |---|---|---|
-| 建 / 恢复 agent | `ctx.agents.create({ sessionId, agentOptions, setup })` / `resume()` | 返回 `AgentHandle`，唯一能拆掉它的持有者 |
-| 投递 | `handle.followup({ content, source })` / `steer()` | 唤醒 driver |
+| 建 / 恢复 agent | `ctx.agents.create({ sessionId, agentOptions, setup })` / `resume()` | **返回 `{ agent }`**，不是 agent 本身；`get(id)` 则直接返回 agent |
+| 投递 | `agent.followup(userMessage)` —— 参数是**完整的 user 消息对象**（`{ id, role:'user', content, source:{kind:'user'} }`），同步返回 | 只传 `{ content }` 会在运行时抛 `followup is not a function` / 形状错误，而错误被队列吞掉，只剩「agent 建了但一句话没投进去」 |
 | 主动注入 | `handle.inject({ content, source })` | **不唤醒**；模型可见上下文 |
 | 作用域 | `agent.ctx` | 工具 / 提示词段 / 监听器 / 限制，**只对该 agent 生效**，dispose 自动撤销 |
 | 工具注册 | `ctx.tools.register(def)` | 走 `defineTool`：parameters + output.schema + output.render |

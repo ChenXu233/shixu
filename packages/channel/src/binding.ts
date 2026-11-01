@@ -9,18 +9,44 @@ export const inject = ['channels']
 
 /**
  * 我们只用得到 `ctx.agents` 的两件事：**第一次**为一个 sessionId 建 agent，
- * **之后**按 id 取回同一个句柄。其余一概不碰，换 agent 实现时不该影响绑定。
+ * **之后**按 id 取回同一个 agent。其余一概不碰，换 agent 实现时不该影响绑定。
  *
- * 形状取自 DSH 实测签名（create 返回句柄、get 按 id 找活着的 agent）；
- * DSH 升级后必须回读安装包核对。
+ * 形状是回读安装包核对过的（dsh-agent / dsh-headless / dsh-llm）：
+ *   - `create()` 返回 **{ agent }**，不是 agent 本身；
+ *   - `get(id)` 直接返回 agent；
+ *   - 投递在 **agent.followup(message)** 上，参数是一条完整的 user 消息对象，
+ *     不是 `{ content }`；它同步返回，不 await。
+ * DSH 升级后必须重新核对这三点。
  */
-interface HandleLike {
-  followup(input: { content: [{ type: 'text'; text: string }] }): Promise<unknown>
+interface AgentLike {
+  followup(message: UserMessage): void
 }
 
 interface AgentsLike {
-  create(options: { sessionId: string }): Promise<HandleLike>
-  get(id: string): HandleLike | undefined
+  create(options: { sessionId: string }): Promise<{ agent: AgentLike }>
+  get(id: string): AgentLike | undefined
+}
+
+/**
+ * 一条 user 消息。dsh 的 `createUserMessage` 就是 `{ ...input, role: 'user', id }`
+ * 再冻结一次（dsh-llm/lib/index.js），所以这里直接造出来，不去依赖 dsh-llm 的副本 ——
+ * 插件里多装一份 dsh 内部包，比这个形状更危险。
+ */
+export interface UserMessage {
+  id: string
+  role: 'user'
+  content: [{ type: 'text'; text: string }]
+  source: { kind: 'user' }
+}
+
+/** 一条入站消息变成一个 user 消息，id 每条唯一（平台消息 id 可能重复，不能拿来当它）。 */
+export function toUserMessage(text: string): UserMessage {
+  return {
+    id: globalThis.crypto.randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  }
 }
 
 /** 一条入站消息渲染成模型看到的样子。来源事实走前缀，不走 source kind。 */
@@ -50,7 +76,7 @@ export function apply(ctx: Context): void {
   ctx.inject(['agents'], (scoped) => {
     const agents = (scoped as unknown as { agents: AgentsLike }).agents
     const log = scoped.logger('channel-binding')
-    const live = new Map<string, HandleLike>()
+    const live = new Map<string, AgentLike>()
     const queues = new Map<string, Promise<void>>()
 
     /**
@@ -78,8 +104,8 @@ export function apply(ctx: Context): void {
       const venue = venueKeyOf(event)
 
       serialize(venue, async () => {
-        const handle = await open(venue, agents, live)
-        await handle.followup({ content: [{ type: 'text', text: renderInbound(event) }] })
+        const agent = await open(venue, agents, live)
+        agent.followup(toUserMessage(renderInbound(event)))
       })
     })
   })
@@ -89,13 +115,13 @@ export function apply(ctx: Context): void {
 async function open(
   venue: string,
   agents: AgentsLike,
-  live: Map<string, HandleLike>,
-): Promise<HandleLike> {
+  live: Map<string, AgentLike>,
+): Promise<AgentLike> {
   const existing = live.get(venue)
   if (existing !== undefined) return existing
 
   const sessionId = `shixu-${venue}`
-  const handle = agents.get(sessionId) ?? (await agents.create({ sessionId }))
-  live.set(venue, handle)
-  return handle
+  const agent = agents.get(sessionId) ?? (await agents.create({ sessionId })).agent
+  live.set(venue, agent)
+  return agent
 }
