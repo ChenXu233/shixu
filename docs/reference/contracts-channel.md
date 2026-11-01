@@ -79,19 +79,12 @@ export interface ActionDescriptor {
   scope: 'chat' | 'account' | 'guild'
 }
 
-export interface McpServerDeclaration {
-  serverName: string          // 工具名前缀 mcp__<serverName>__<tool>，也是作用域内命名空间
-  risk: 'read' | 'write' | 'destructive'
-  why: string                 // 一句话：为什么这些能力不进动作目录
-}
-
 export interface ChannelDriver {
   protocol: string            // 'onebot11' | 'onebot12' | 'satori' | 'native:discord'
   label: string
   profile: ChannelProfile     // 渠道人格与忌讳
   actions: ActionDescriptor[] // 门 A：动作目录
   capabilities: Capabilities
-  mcpServers?: McpServerDeclaration[]  // 门 B：未抽象能力
   connect(acct: AccountConfig, ctx: DriverCtx): Promise<void>
   disconnect(): Promise<void>
   call(action: string, params: unknown, ctx: CallCtx): Promise<unknown>
@@ -119,11 +112,11 @@ export interface ChannelDriver {
 | 门 | 声明处 | 工具名 | 内核拿它做什么 |
 |---|---|---|---|
 | A 已抽象 | `actions: ActionDescriptor[]` | `{platform}_{action}` | 按 `risk` / `reversible` 决定放行还是问人 |
-| B 未抽象 | `mcpServers` + 驱动自带的 MCP server | `mcp__<serverName>__<tool>` | 按 `risk` 决定放行还是问人 |
+| B 未抽象 | 驱动自带的 MCP server，**契约里不出现** | `mcp__<serverName>__<tool>` | 只认这个前缀，一律不允许自主执行 |
 
 选哪条门是驱动作者的判断。**内核不判断「这个平台该有哪些能力」，只判断「这个动作危险不危险」** —— 一旦它开始维护平台能力清单，抽象就又回到了「把差异全建模」的老路。
 
-门 B 由内核按场所挂载：工具必须是 agent 作用域，所以每个场所一份 MCP 连接。驱动的 server 应优先提供 `streamable-http`，让一个服务进程被多个场所共用；`stdio` 等于每场所一个子进程。
+门 B 不带任何分级、豁免或白名单：能写出风险等级的，就已经抽象完了，那它该进动作目录。留下的只有一条 —— 名字不以 `{platform}_` 开头、而以 `mcp__` 开头的东西，我们不知道它做了什么，所以它不能自己动手。
 
 **未抽象不是降级。** 降级是同一个能力在弱平台上表达退化（图片→链接、卡片→纯文本），必须留痕；门 B 是能力压根没有统一语义，它照常工作，只是不走动作目录。把这两件事混为一谈，会让「没抽象 = 坏掉了」，而那正是最贵的误解。
 

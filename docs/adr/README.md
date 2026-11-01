@@ -62,7 +62,8 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | 8 | 身份绑定方式 | 手动 owner 列表 + 配对流程，两者都要 | proposed |
 | 9 | 无权限者怎么对待 | 能正常对话但受限：只读工具 + 只能写本场所记忆 | proposed |
 | 10 | 单主单活还是多副本常驻 | 单主单活：一具持租约的身体连 channel，其余 warm standby | proposed |
-| 11 | 门 B（MCP）工具的风险从哪来 | 驱动用 `mcpServers[].risk` 逐 server 声明，未声明按 `destructive` 处置 | proposed |
+| 11 | 门 B 的挂载缝：驱动怎么拿到场所的 agent 上下文 | 内核在 `channels` 上开一个 `onAgentSetup` 钩子，按场所交给驱动 | proposed |
+| 12 | 门 B 的人工确认粒度：每次调用 / 每工具每场所一次 | 每次调用（最保守，逼着毕业） | proposed |
 
 ## 什么时候写 ADR
 

@@ -120,18 +120,12 @@ export interface ActionDescriptor {
 }
 
 /**
- * 门 B：没有统一语义的平台能力，由驱动自带的 MCP server 提供。
+ * 驱动的契约。
  *
- * 声明里只需要风险等级 —— 内核据此决定要不要问人，不解析 MCP 里的工具。
+ * 门 A（已抽象的动作）在这里声明；门 B（没有词表的能力）**不在这里** ——
+ * 驱动自己把 MCP server 挂到场所的 agent 上，内核只凭 `mcp__` 前缀认得出
+ * 「这不是我们的词表里的东西」，所以不允许它自主执行。
  */
-export interface McpServerDeclaration {
-  /** 工具名前缀 `mcp__<serverName>__<tool>`，也是该作用域内的命名空间。 */
-  serverName: string
-  risk: 'read' | 'write' | 'destructive'
-  /** 一句话：为什么这些能力不进动作目录。写给人看。 */
-  why: string
-}
-
 export interface ChannelDriver {
   /** 注册表键 = 协议，不是平台：同一个 QQ 可以同时挂 OneBot 11 与官方 API。 */
   protocol: string
@@ -139,8 +133,6 @@ export interface ChannelDriver {
   /** 门 A：已抽象的动作。 */
   actions: ActionDescriptor[]
   capabilities: Capabilities
-  /** 门 B：未抽象的能力。 */
-  mcpServers?: McpServerDeclaration[]
   /** 内核把入站事件交给这里，driver 再回调 handler。 */
   onEvent(handler: (event: UnifiedEvent) => void): void
   /** 发一条消息或执行一个动作；由内核按会话路由到这里。 */
