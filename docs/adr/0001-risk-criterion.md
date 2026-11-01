@@ -44,3 +44,4 @@
 
 - 判据与矩阵：[判据与默认值](../reference/policies.md#风险判据可逆性--影响半径)
 - 撤销层：[动作凭据](../reference/contracts-persona.md#动作凭据)
+- 影响清单最后一条（不可逆 ⇒ 自主时直接拒绝）的现行口径已放宽为「出厂默认问人」，见 [ADR-0007](0007-rbac-carries-authorization-and-risk.md)

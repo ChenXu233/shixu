@@ -104,17 +104,38 @@ export interface CapabilityToken {
 }
 ```
 
-校验顺序（缺一步都不算通过）：
+判定不是布尔：`ask` 是一等结果（它落到审批闸门）。词表与 DSH 的 `tools/pre-execute` 同构，映射是恒等。
 
 ```ts
-export function verify(token: CapabilityToken, action: { scope: CapabilityScope; name?: string }): boolean {
-  if (token.expiresAt < Date.now()) return false            // 过期
-  if (token.epoch !== currentEpoch()) return false           // 权限改过 → 旧 token 全废
-  if (!token.scopes.has(action.scope)) return false          // 作用域不覆盖
-  if (action.scope === 'tools' && !allowedTools(token).has(action.name!)) return false
-  return true                                                 // 最后仍要验签
+export type Decision = 'allow' | 'ask' | 'deny'
+
+/** 一条授权规则。match 支持 `*` 通配：'{platform}_{action}' · 'mcp__<serverName>__*' · '*' */
+export interface PermissionRule {
+  match: string
+  decision: Decision
 }
+
+/** 触发者角色 + 自主回合。自主回合没有发起人（定时、做梦、主动发言），单列一格。 */
+export type ActorRole = CapabilityToken['role'] | 'autonomous'
+
+/** 角色 → 规则。用户可改；改了就递增 epoch，让旧 token 全废。 */
+export type PermissionMatrix = Record<ActorRole, PermissionRule[]>
+
+export function decide(
+  token: CapabilityToken,
+  action: { scope: CapabilityScope; name?: string },
+  native?: Decision,                                          // 工具的原生默认；门 B 没有
+): Decision
 ```
+
+四步，缺一步都算未授权：
+
+1. token 校验失败（过期 / `epoch` 不符 / `scope` 不覆盖 / 验签不过）→ `deny`；
+2. 命中的规则取最严（`deny` > `ask` > `allow`）；
+3. 没命中 → `native`；
+4. `native` 也没有 → `deny`。
+
+规则顺序与出厂值见[判据与默认值](policies.md#风险只提供默认值)。
 
 `action.name` 对门 B 的工具是 `mcp__<serverName>__<tool>`。矩阵里可以按 server 前缀授权（`mcp__calendar__*`）—— 我们本来就不认识单个工具，按 server 授才是诚实的粒度。
 
