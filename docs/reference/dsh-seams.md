@@ -36,6 +36,7 @@
 | 审批服务 | `ctx.approval.request(req)` / `setPolicy` | 策略 ask（默认）/ never；审计 `approval/asked`、`approval/decided` |
 | 命令 | `ctx.commands.register({ name, description, input, handler })` | handler 返回 `{ kind, text }`；**命令不产生模型消息** |
 | 提示词 | `ctx.systemPrompt.section()`；`agent.ctx` 上的 scoped section | per-agent 上下文用 `agent.inject()` |
+| 默认模型 | `ctx.agentDefaultModel.currentSelection()` | 返回 `{ provider, model, reasoningEffort? }`，**从根上下文取**：它是可选依赖，进不了 `inject` 名单。不给 `agentOptions` 又不读它，agent 就没有模型 —— prompt 里的 `{{model}}` 变量没人填（`dsh-persona` 的前缀段是严格插值），每一轮在装配阶段直接失败 |
 | 会话 | `ctx.sessions.get/create/fork`；`session.append(type, data, opts?)`、`deriveMessages()`、`flush` | append-only，LLM 历史由日志派生 |
 | 会话事件 | `ctx.root.on('session/event', (session, event) => …)` | **挂在根上下文**：事件从会话服务那里发出，插件自己的 ctx 是它的兄弟、不是祖先。`assistant/message` 的 data 是 `{ turn, step, message, stream, usage?, interrupted? }`，人话在 `message.content` 里 `{ type: 'text', text }` 那些块；`turn/end` 的 data 是 `{ turn, reason }`。一轮工具循环会有多条 `assistant/message`，要回一句话就得按 `turn/end` 聚合 |
 | 凭据 | `ctx.credentials`：`credentialRef`（密钥）/ `credentialKey`（记录：grant \| api-key \| env） | `describe` 永不返回值；`modifyRecord` 是记录唯一写路径 |

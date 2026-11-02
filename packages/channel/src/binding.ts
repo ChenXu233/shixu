@@ -188,7 +188,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log)
         const record = await workspace
-        const agent = await open(sessionId, venue, agents, live, dir, model(config), log, record, attached)
+        const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         agent.followup(toUserMessage(renderInbound(event)))
       })
     })
@@ -226,6 +226,33 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     })
     return () => void off?.()
   }, 'channel-binding.replies')
+}
+
+/**
+ * 跟随部署默认：读 `agentDefaultModel` 现在选的是哪个。
+ *
+ * 不读这一个，会话就没有模型 —— prompt 里的 `{{model}}` 变量没人填，
+ * 每一轮都在装配阶段直接失败，群里一句话都不会有。
+ */
+type DefaultModelLike = { currentSelection(): { provider?: string; model?: string; reasoningEffort?: string } }
+
+function defaultModel(ctx: Context): AgentModel | undefined {
+  try {
+    // 从根上下文找：这个服务是可选依赖，进不了 inject 名单，插件自己的作用域里看不见它。
+    // 服务没装时读属性或 get() 都可能抛 —— 缺了就当没配。
+    const probe = ctx.root as unknown as { get?(name: string): unknown; agentDefaultModel?: DefaultModelLike }
+    const owner = probe.agentDefaultModel ?? (typeof probe.get === 'function' ? (probe.get('agentDefaultModel') as DefaultModelLike | undefined) : undefined)
+    if (owner === undefined) return undefined
+    const selection = owner.currentSelection()
+    if (selection.provider === undefined || selection.model === undefined) return undefined
+    return {
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+    }
+  } catch {
+    return undefined
+  }
 }
 
 /** 模型三件套；provider 或 model 缺一个就不指定，交给部署默认。 */

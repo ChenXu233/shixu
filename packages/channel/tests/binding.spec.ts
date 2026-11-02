@@ -79,6 +79,23 @@ class FakeWorkspaces extends Service {
   }
 }
 
+/** 假的部署默认模型：人格没指定时应当读它。 */
+class FakeDefaultModel extends Service {
+  selection: { provider?: string; model?: string; reasoningEffort?: string } = {
+    provider: 'openrouter',
+    model: 'deepseek-v4.1-flash-oc',
+    reasoningEffort: 'max',
+  }
+
+  constructor(ctx: Context) {
+    super(ctx, 'agentDefaultModel')
+  }
+
+  currentSelection() {
+    return this.selection
+  }
+}
+
 const tick = () => new Promise((r) => setTimeout(r, 60))
 
 /**
@@ -101,12 +118,13 @@ describe('场所 → agent 绑定', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  async function boot(config: Record<string, unknown> = {}) {
+  async function boot(config: Record<string, unknown> = {}, options: { defaultModel?: boolean } = {}) {
     h = makeApp()
     await h.use(Channels)
     await h.use(fakeDriver)
     await h.use(FakeAgents)
     await h.use(FakeWorkspaces)
+    if (options.defaultModel === true) await h.use(FakeDefaultModel)
     await h.use(binding, config)
     return {
       driver: h.app.channels.getDriver('fake')!,
@@ -196,6 +214,26 @@ describe('场所 → agent 绑定', () => {
     silent.driver.simulateInbound({ conversationId: 'g1', text: '你好' })
     await tick()
     expect(silent.agents.created[0].model).toBeUndefined()
+  })
+
+  it('没指定模型就跟随部署默认：不然会话没有模型，每一轮都装配失败', async () => {
+    const { driver, agents } = await boot({}, { defaultModel: true })
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(agents.created[0].model).toEqual({
+      provider: 'openrouter',
+      model: 'deepseek-v4.1-flash-oc',
+      reasoningEffort: 'max',
+    })
+  })
+
+  it('人格自己指定的模型优先于部署默认', async () => {
+    const { driver, agents } = await boot({ provider: 'gemini-lumiya', model: 'gemini-4-argon' }, { defaultModel: true })
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(agents.created[0].model).toEqual({ provider: 'gemini-lumiya', model: 'gemini-4-argon' })
   })
 
   it('并发不乱序：同群两条同时到达，顺序与到达顺序一致', async () => {
