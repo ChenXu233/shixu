@@ -45,8 +45,14 @@ interface AgentsLike {
 }
 
 /** 工作区登记只需要两件事：有没有、建没建。 */
+interface WorkspaceRecordLike {
+  path: string
+  title: string
+  setTitle(title: string): Promise<void>
+}
+
 interface WorkspaceRegistryLike {
-  list(): readonly { path: string }[]
+  list(): readonly WorkspaceRecordLike[]
   create(path: string, title?: string): Promise<unknown>
 }
 
@@ -99,7 +105,7 @@ export function renderInbound(event: UnifiedEvent): string {
 export function apply(ctx: Context, config: PersonaConfig): void {
   const personaId = readField<string>(config.personaId) ?? 'default'
   const dir = personaDir(personaRoot(), personaId)
-  const title = `人格 · ${personaId}`
+  const title = `时煦-${personaId}`
   let workspace: Promise<void> | undefined
 
   ctx.inject(['agents'], (scoped) => {
@@ -169,7 +175,12 @@ async function prepareWorkspace(
   if (registry === undefined) return
   try {
     const canonical = await realpath(dir)
-    if (registry.list().some((item) => item.path === canonical)) return
+    const existing = registry.list().find((item) => item.path === canonical)
+    if (existing !== undefined) {
+      // 名字是算出来的，不是存出来的：改过命名规则之后，已有的记录跟着改。
+      if (existing.title !== title) await existing.setTitle(title)
+      return
+    }
     await registry.create(canonical, title)
     log.info('人格工作区：%s', canonical)
   } catch (error) {

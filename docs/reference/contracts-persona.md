@@ -39,7 +39,7 @@ $DSH_HOME/persona/<personaId>/
 
 ```ts
 const dir = personaDir(personaId)                 // 目录必须先存在
-const project = await ctx.workspaceRegistry.create(dir, '人格 · ' + persona.name)
+const project = await ctx.workspaceRegistry.create(dir, '时煦-' + persona.name)   // 侧栏里显示的名字
 const session = ctx.sessions.create(sessionId, { meta: { cwd: dir } })   // 自动归组
 ```
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { mkdir, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -52,6 +52,31 @@ class FakeAgents extends Service {
   }
 }
 
+/** 假的工作区登记处：只记下名字，够断言「侧栏里叫什么」。 */
+class FakeWorkspaces extends Service {
+  records: { path: string; title: string; setTitle(title: string): Promise<void> }[] = []
+  created: string[] = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'workspaceRegistry')
+  }
+
+  list() {
+    return this.records
+  }
+
+  async create(path: string, title?: string) {
+    this.created.push(title ?? '')
+    const record = {
+      path,
+      title: title ?? '',
+      setTitle: async (next: string) => { record.title = next },
+    }
+    this.records.push(record)
+    return record
+  }
+}
+
 const tick = () => new Promise((r) => setTimeout(r, 60))
 
 /**
@@ -79,8 +104,13 @@ describe('场所 → agent 绑定', () => {
     await h.use(Channels)
     await h.use(fakeDriver)
     await h.use(FakeAgents)
+    await h.use(FakeWorkspaces)
     await h.use(binding, config)
-    return { driver: h.app.channels.getDriver('fake')!, agents: h.app.get('agents') as FakeAgents }
+    return {
+      driver: h.app.channels.getDriver('fake')!,
+      agents: h.app.get('agents') as FakeAgents,
+      workspaces: h.app.get('workspaceRegistry') as FakeWorkspaces,
+    }
   }
 
   it('一个场所一个 agent：同群第二条消息复用', async () => {
@@ -110,6 +140,27 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     expect(agents.created[0].cwd).toBe(join(home, 'persona', 'arisu'))
+  })
+
+  it('工作区在侧栏里叫 时煦-<人格名>', async () => {
+    const { driver, workspaces } = await boot({ personaId: 'arisu' })
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(workspaces.created).toEqual(['时煦-arisu'])
+  })
+
+  it('已有的工作区按新名字改名，不重复登记', async () => {
+    const dir = await realpath(await mkdir(join(home, 'persona', 'default'), { recursive: true }).then(() => join(home, 'persona', 'default')))
+    const { driver, workspaces } = await boot()
+    const record = { path: dir, title: '人格 · default', setTitle: async (next: string) => { record.title = next } }
+    workspaces.records.push(record)
+
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(workspaces.created).toHaveLength(0)
+    expect(record.title).toBe('时煦-default')
   })
 
   it('已经落过盘的会话走恢复，不会被重建', async () => {
