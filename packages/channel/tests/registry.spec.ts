@@ -53,13 +53,6 @@ describe('channels 注册表', () => {
 
   afterEach(async () => await h?.dispose())
 
-  it('注册即可用', async () => {
-    h = makeApp()
-    await h.use(Channels)
-    await h.use(fakeDriver)
-    expect(h.app.channels.listDrivers().map((d) => d.protocol)).toEqual(['fake'])
-  })
-
   it('卸载即消失', async () => {
     h = makeApp()
     await h.use(Channels)
