@@ -54,8 +54,9 @@ class FakeAgents extends Service {
 
 /** 假的工作区登记处：只记下名字，够断言「侧栏里叫什么」。 */
 class FakeWorkspaces extends Service {
-  records: { path: string; title: string; setTitle(title: string): Promise<void> }[] = []
+  records: { path: string; title: string; setTitle(title: string): Promise<void>; attachSession(id: string): Promise<void> }[] = []
   created: string[] = []
+  attached: string[] = []
 
   constructor(ctx: Context) {
     super(ctx, 'workspaceRegistry')
@@ -71,6 +72,7 @@ class FakeWorkspaces extends Service {
       path,
       title: title ?? '',
       setTitle: async (next: string) => { record.title = next },
+      attachSession: async (id: string) => { this.attached.push(id) },
     }
     this.records.push(record)
     return record
@@ -227,6 +229,68 @@ describe('场所 → agent 绑定', () => {
     const text = agents.get('shixu-fake:bot:g1').calls[0].content[0].text
     expect(text).toMatch(/^<dsh_source [^>]*venue="fake\/bot\/g1"/)
     expect(text).toMatch(/你好$/)
+  })
+
+  it('人格说的话回到原场所：一条 turn 只发一条', async () => {
+    const { driver } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    const sessionId = 'shixu-fake:bot:g1'
+    const say = (text: string) =>
+      h.app.emit('session/event', { id: sessionId }, {
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text }] } },
+      })
+
+    // 一次 turn 里两步：工具调用之后再说一句，用户等的是一条回复，不是两条。
+    say('我查一下')
+    say('查到了，是 42')
+    h.app.emit('session/event', { id: sessionId }, { type: 'turn/end', data: { turn: 1, reason: 'success' } })
+    await tick()
+
+    const sent = (driver as any).sent
+    expect(sent).toHaveLength(1)
+    expect(sent[0].action).toBe('send')
+    expect(sent[0].params.segments).toEqual([{ type: 'text', data: { text: '我查一下\n\n查到了，是 42' } }])
+  })
+
+  it('只调工具不说话的一轮，不往群里发空消息', async () => {
+    const { driver } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    h.app.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
+      type: 'assistant/message',
+      data: { message: { content: [{ type: 'tool-call', name: 'echo' }] } },
+    })
+    h.app.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/end', data: { turn: 1, reason: 'success' } })
+    await tick()
+
+    expect((driver as any).sent).toHaveLength(0)
+  })
+
+  it('别的会话说的话不会被发到这个场所', async () => {
+    const { driver } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    h.app.emit('session/event', { id: 'shixu-fake:bot:g2' }, {
+      type: 'assistant/message',
+      data: { message: { content: [{ type: 'text', text: '串台了' }] } },
+    })
+    h.app.emit('session/event', { id: 'shixu-fake:bot:g2' }, { type: 'turn/end', data: { turn: 1 } })
+    await tick()
+
+    expect((driver as any).sent).toHaveLength(0)
+  })
+
+  it('会话挂进人格工作区，侧栏里找得到', async () => {
+    const { driver, workspaces } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(workspaces.attached).toEqual(['shixu-fake:bot:g1'])
   })
 
   it('不是 message 的事件不唤醒人格（入群通知不该把人叫起来）', async () => {
