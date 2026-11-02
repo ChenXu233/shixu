@@ -26,10 +26,12 @@ describe('插件入口在装载器眼里必须完好', () => {
     expect(plugin.name).toBe('driver-fake')
   })
 
-  it('binding：装载后仍带着 inject 与 apply', async () => {
+  it('binding：装载后仍带着 inject、apply 与 Config', async () => {
     const plugin = unwrapExports(await import('../lib/binding.js')) as any
     expect(plugin.inject).toEqual(['channels'])
     expect(typeof plugin.apply).toBe('function')
+    // Config 丢了，设置页里人格分区就是空的，保存也无处可写。
+    expect(plugin.Config?.['~standard']).toBeDefined()
   })
 
   it('channels：默认导出是 Service 子类（自带生命周期）', async () => {

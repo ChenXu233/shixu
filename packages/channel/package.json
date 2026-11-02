@@ -1,6 +1,6 @@
 {
   "name": "dsh-shixu-channel",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "private": true,
   "type": "module",
   "description": "渠道内核：统一事件、驱动注册表、发放与收回",
@@ -40,7 +40,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "~4.0.5"
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/schemastery": "~3.18.5"
   },
   "dsh": {
     "bundle": {
@@ -52,5 +53,8 @@
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
   }
 }

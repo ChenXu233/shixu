@@ -29,9 +29,11 @@ $DSH_HOME/persona/<personaId>/
 ~/.dsh/persona/<personaId>/
 ├── workspace/          人格公共产物（跨场所可见）
 └── venues/<venueId>/
-    ├── scratch/        该场所的临时产物（场所 agent 的 cwd）
+    ├── scratch/        该场所的临时产物
     └── artifacts/      归档的成品
 ```
+
+**所有场所共用一个 cwd**：人格根，不是 `venues/<venueId>/scratch`（理由见 [ADR-0010](../adr/0010-persona-config.md)）。工作区按 cwd 归组，所以一个部署的人格在侧栏里只占一个项目。
 
 注册为真正的 DSH 项目：
 
@@ -41,7 +43,29 @@ const project = await ctx.workspaceRegistry.create(dir, '人格 · ' + persona.n
 const session = ctx.sessions.create(sessionId, { meta: { cwd: dir } })   // 自动归组
 ```
 
+会话第一次落盘必须走 `ctx.agents.create` —— `resume` 没有 cwd 参数，见 [DSH 接缝](../reference/dsh-seams.md#可用的seam精确到-api)。
+
 依赖挂载：`dsh-session` + `dsh-session-persistence-jsonl` + `dsh-storage` + `dsh-storage-json` + `dsh-storage-domain` + `dsh-workspace`。
+
+## 配置面
+
+落盘位置是 profile patch 里 binding 那一行的 `config`，形状由插件导出的 `Config` 决定（依据 [ADR-0010](../adr/0010-persona-config.md)）：
+
+```yaml
+personaId: default          # 它是谁，同时是数据目录名
+provider: openrouter        # 省略 = 跟随部署默认
+model: deepseek-v4.1-flash-oc
+reasoningEffort: max
+mutedVenues:                # 例外：让它安静的场所
+  - 'qq:1658856973:791465037'
+```
+
+| 形状 | 形态 | 例子 |
+|---|---|---|
+| 标量 | 原生表单字段 | `provider`、`model` |
+| 例外清单 | 一组字符串，可增删 | `mutedVenues` |
+| 运行事实 | 只读 | 在线场所、连接状态 |
+| 派生事实 | 不出现 | cwd、sessionId |
 
 ## 在场集合
 

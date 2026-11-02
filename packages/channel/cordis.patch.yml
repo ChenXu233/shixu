@@ -7,5 +7,8 @@
     - id: shixu-driver-fake
       name: 'dsh-shixu-channel/driver-fake'
 
+    # 人格的配置面在这一行的 config 里：personaId（默认 default）、
+    # provider / model / reasoningEffort（留空 = 跟随部署默认）、
+    # venues（场所覆盖表，空 = 所有场所都在场）。
     - id: shixu-channel-binding
       name: 'dsh-shixu-channel/binding'

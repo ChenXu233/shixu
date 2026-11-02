@@ -1,52 +1,85 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Channels from '../lib/channels.js'
 import * as fakeDriver from '../lib/driver-fake.js'
 import * as binding from '../lib/binding.js'
 
-/** 假的 agents 服务：只实现绑定真正用到的两件事（create / get）。 */
+/**
+ * 假的 agents 服务：只实现绑定真正用到的三件事。
+ * 形状对齐真实 dsh：create 收 meta.cwd，已经落过盘就抛 SessionAlreadyExistsError；
+ * resume 只按 id 恢复；投递在 agent.followup(消息对象) 上。
+ */
 class FakeAgents extends Service {
-  created: string[] = []
-  handles = new Map<string, any>()
+  created: { sessionId: string; cwd?: string; model?: unknown }[] = []
+  resumed: string[] = []
+  persisted = new Set<string>()
+  live = new Map<string, any>()
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
   }
 
-  // 形状对齐真实 dsh：resume() 恢复或新建，返回 { agent }；投递在 agent.followup(消息对象) 上。
-  // 已经有这个 id 就复用（等价于从持久化恢复），否则新建。
-  async resume({ resumeSessionId }: { resumeSessionId: string }) {
-    const existing = this.handles.get(resumeSessionId)
-    if (existing !== undefined) return { agent: existing }
-    const calls: any[] = []
-    const agent = { sessionId: resumeSessionId, calls, followup: (message: any) => { calls.push(message) } }
-    this.created.push(resumeSessionId)
-    this.handles.set(resumeSessionId, agent)
-    return { agent }
+  async create({ sessionId, meta, agentOptions }: any) {
+    if (this.persisted.has(sessionId)) {
+      const error = new Error(`session "${sessionId}" already exists`)
+      error.name = 'SessionAlreadyExistsError'
+      throw error
+    }
+    this.persisted.add(sessionId)
+    this.created.push({ sessionId, cwd: meta?.cwd, model: agentOptions })
+    return { agent: this.spawn(sessionId), dispose: async () => {} }
+  }
+
+  async resume({ resumeSessionId }: any) {
+    this.resumed.push(resumeSessionId)
+    this.persisted.add(resumeSessionId)
+    return { agent: this.live.get(resumeSessionId) ?? this.spawn(resumeSessionId) }
   }
 
   get(id: string) {
-    return this.handles.get(id)
+    return this.live.get(id)
+  }
+
+  spawn(id: string) {
+    const calls: any[] = []
+    const agent = { sessionId: id, calls, followup: (message: any) => { calls.push(message) } }
+    this.live.set(id, agent)
+    return agent
   }
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 30))
+const tick = () => new Promise((r) => setTimeout(r, 60))
 
 /**
- * 破损类：**一条消息没能变成一轮对话**，或**变成了好几轮 / 乱序的几轮**。
- * 用户看到：群里问一句人格不回；或它把两句话的先后顺序搞反，答非所问。
+ * 破损类：**一条消息没能变成一轮对话**，或**变成了好几轮 / 乱序的几轮**，
+ * 或**人格在一个它不该说话的地方说话了**。
  */
 describe('场所 → agent 绑定', () => {
   let h: any
+  let home: string
 
-  afterEach(async () => await h?.dispose())
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'shixu-binding-'))
+    process.env.DSH_HOME = home
+  })
 
-  async function boot() {
+  afterEach(async () => {
+    await h?.dispose()
+    h = undefined
+    delete process.env.DSH_HOME
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  async function boot(config: Record<string, unknown> = {}) {
     h = makeApp()
     await h.use(Channels)
     await h.use(fakeDriver)
     await h.use(FakeAgents)
-    await h.use(binding)
+    await h.use(binding, config)
     return { driver: h.app.channels.getDriver('fake')!, agents: h.app.get('agents') as FakeAgents }
   }
 
@@ -58,6 +91,58 @@ describe('场所 → agent 绑定', () => {
 
     expect(agents.created).toHaveLength(1)
     expect(agents.get('shixu-fake:bot:g1').calls).toHaveLength(2)
+  })
+
+  it('新场所的会话落在人格工作区里：cwd 是 persona/<id>，目录真的建出来', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    const dir = join(home, 'persona', 'default')
+    expect(agents.created[0].cwd).toBe(dir)
+    // 目录不存在的话，会话 header 指向一个空洞 —— 产物与记忆都无处可放。
+    await expect(stat(dir)).resolves.toBeTruthy()
+  })
+
+  it('人格 id 改了，工作区跟着走', async () => {
+    const { driver, agents } = await boot({ personaId: 'arisu' })
+    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+
+    expect(agents.created[0].cwd).toBe(join(home, 'persona', 'arisu'))
+  })
+
+  it('已经落过盘的会话走恢复，不会被重建', async () => {
+    const { driver, agents } = await boot()
+    agents.persisted.add('shixu-fake:bot:g1')
+    driver.simulateInbound({ conversationId: 'g1', text: '接着说' })
+    await tick()
+
+    expect(agents.created).toHaveLength(0)
+    expect(agents.resumed).toEqual(['shixu-fake:bot:g1'])
+  })
+
+  it('关掉的场所不唤醒人格：不建 agent、不投递', async () => {
+    const { driver, agents } = await boot({ mutedVenues: ['fake:bot:g1'] })
+    driver.simulateInbound({ conversationId: 'g1', text: '在吗' })
+    driver.simulateInbound({ conversationId: 'g2', text: '在吗' })
+    await tick()
+
+    expect(agents.created.map((one) => one.sessionId)).toEqual(['shixu-fake:bot:g2'])
+  })
+
+  it('配了模型就带上，没配就跟随默认', async () => {
+    const explicit = await boot({ provider: 'openrouter', model: 'deepseek-v4.1-flash-oc' })
+    explicit.driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+    expect(explicit.agents.created[0].model).toEqual({ provider: 'openrouter', model: 'deepseek-v4.1-flash-oc' })
+    await h?.dispose()
+    h = undefined
+
+    const silent = await boot()
+    silent.driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    await tick()
+    expect(silent.agents.created[0].model).toBeUndefined()
   })
 
   it('并发不乱序：同群两条同时到达，顺序与到达顺序一致', async () => {
@@ -106,8 +191,8 @@ function makeApp() {
   const fibers: any[] = []
   return {
     app,
-    async use(plugin: any) {
-      const fiber: any = await app.plugin(plugin)
+    async use(plugin: any, config?: unknown) {
+      const fiber: any = await app.plugin(plugin, config as any)
       fibers.push(fiber)
       return fiber
     },

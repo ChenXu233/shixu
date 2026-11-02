@@ -8,6 +8,7 @@
     "outDir": "lib",
     "rootDir": "src",
     "skipLibCheck": true,
+    "types": ["node"],
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": true
   },
