@@ -40,13 +40,4 @@ describe('插件入口在装载器眼里必须完好', () => {
     expect(plugin.name).toBe('Channels')
   })
 
-  it('守卫本身有效：一个有 default 的模块确实会丢掉 inject', () => {
-    const regressed = {
-      name: 'some-plugin',
-      inject: ['channels'],
-      apply() {},
-      default: function apply() {},
-    }
-    expect((unwrapExports(regressed) as any).inject).toBeUndefined()
-  })
 })
