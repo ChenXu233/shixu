@@ -40,6 +40,7 @@
 | 提示词 | `ctx.systemPrompt.section({ name, order, text, interpolate })`；在 `agent.ctx` 上注册只影响该 agent，并遮蔽同名全局项 | `interpolate: false` 原样保留 `{{…}}`：给人写的文本不要走变量插值，否则一个没注册的变量会让整次组装失败 |
 | 默认模型 | `ctx.agentDefaultModel.currentSelection()` | 返回 `{ provider, model, reasoningEffort? }`，**从根上下文取**：它是可选依赖，进不了 `inject` 名单。不给 `agentOptions` 又不读它，agent 就没有模型 —— prompt 里的 `{{model}}` 变量没人填（`dsh-persona` 的前缀段是严格插值），每一轮在装配阶段直接失败 |
 | 会话 | `ctx.sessions.get/create/fork`；`session.append(type, data, opts?)`、`deriveMessages()`、`flush` | append-only，LLM 历史由日志派生 |
+| 会话存储位置 | 由日志头里的 `cwd` 决定：`sessions/<cwd 派生目录>/<sessionId>/session.v4.jsonl.zstd` | **cwd 建好之后不能改**，`resume` 也没有 cwd 参数。没有 cwd 的老会话落在 `sessions/_no-cwd/`，工作区面板按 cwd 找它，会报 `session not found`。搬家必须两步一起做 —— 改日志头第一帧的 `cwd`，再移目录；只移目录会报 `corrupt session log`，整个 workspace 服务起不来，UI 全空 |
 | 会话事件 | `ctx.root.on('session/event', (session, event) => …)` | **挂在根上下文**：事件从会话服务那里发出，插件自己的 ctx 是它的兄弟、不是祖先。`assistant/message` 的 data 是 `{ turn, step, message, stream, usage?, interrupted? }`，人话在 `message.content` 里 `{ type: 'text', text }` 那些块；`turn/end` 的 data 是 `{ turn, reason }`。一轮工具循环会有多条 `assistant/message`，要回一句话就得按 `turn/end` 聚合 |
 | 凭据 | `ctx.credentials`：`credentialRef`（密钥）/ `credentialKey`（记录：grant \| api-key \| env） | `describe` 永不返回值；`modifyRecord` 是记录唯一写路径 |
 | 持久 | `ctx.storageDomain` | 插件自有数据 |
