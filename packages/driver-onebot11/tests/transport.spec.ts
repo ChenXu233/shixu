@@ -161,7 +161,9 @@ describe('正向 WebSocket', () => {
     connections[0]!.socket.close()
     await waitFor(() => connections.length === 2, 4000)
     expect(Date.now() - closedAt).toBeGreaterThanOrEqual(900)
-    expect(forward.connected).toBe(true)
+    // 服务端的 connection 先到、客户端的 open 后到：等它把状态翻过来再断言，
+    // 差的这几十毫秒在慢的机器上会被放大成一条假红。
+    await waitFor(() => forward.connected)
   })
 
   it('stop() 之后不再重连', async () => {
