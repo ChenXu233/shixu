@@ -30,12 +30,13 @@
 | 投递 | `agent.followup(userMessage)` —— 参数是**完整的 user 消息对象**（`{ id, role:'user', content, source:{kind:'user'} }`），同步返回 | 只传 `{ content }` 会在运行时抛 `followup is not a function` / 形状错误，而错误被队列吞掉，只剩「agent 建了但一句话没投进去」 |
 | 主动注入 | `handle.inject({ content, source })` | **不唤醒**；模型可见上下文 |
 | 作用域 | `agent.ctx` | 工具 / 提示词段 / 监听器 / 限制，**只对该 agent 生效**，dispose 自动撤销 |
-| 工具注册 | `ctx.tools.register(def)` | 走 `defineTool`：parameters + output.schema + output.render |
+| 工具注册 | `ctx.tools.register(def)` | 收的是**编译好的** `ToolDefinition`：`parameters` 必须是 JSON Schema，`output: { schema, render }`。`defineTool` 只是开发期的糖 —— 它把 DSL 编译成 JSON Schema，并在 `execute` 外面套一层参数校验；不想多装一份 dsh 内部包就手写这个对象（`register` 只校验 `output.schema`，不看 `parameters`） |
+| 工具作用域 | 在 `agent.ctx` 上 `register` | 作用域注册只对那一个 agent 可见，不污染全局工具表；同名的全局工具会被遮蔽 |
 | 工具收窄 | `ctx.tools.restrict(filter)` | 只删；`ctx.tools.guard()` 只拒（同步） |
 | 审批闸门 | `tools/pre-execute`（可返回 ask，异步征询） | 平台写操作的唯一入口 |
 | 审批服务 | `ctx.approval.request(req)` / `setPolicy` | 策略 ask（默认）/ never；审计 `approval/asked`、`approval/decided` |
 | 命令 | `ctx.commands.register({ name, description, input, handler })` | handler 返回 `{ kind, text }`；**命令不产生模型消息** |
-| 提示词 | `ctx.systemPrompt.section()`；`agent.ctx` 上的 scoped section | per-agent 上下文用 `agent.inject()` |
+| 提示词 | `ctx.systemPrompt.section({ name, order, text, interpolate })`；在 `agent.ctx` 上注册只影响该 agent，并遮蔽同名全局项 | `interpolate: false` 原样保留 `{{…}}`：给人写的文本不要走变量插值，否则一个没注册的变量会让整次组装失败 |
 | 默认模型 | `ctx.agentDefaultModel.currentSelection()` | 返回 `{ provider, model, reasoningEffort? }`，**从根上下文取**：它是可选依赖，进不了 `inject` 名单。不给 `agentOptions` 又不读它，agent 就没有模型 —— prompt 里的 `{{model}}` 变量没人填（`dsh-persona` 的前缀段是严格插值），每一轮在装配阶段直接失败 |
 | 会话 | `ctx.sessions.get/create/fork`；`session.append(type, data, opts?)`、`deriveMessages()`、`flush` | append-only，LLM 历史由日志派生 |
 | 会话事件 | `ctx.root.on('session/event', (session, event) => …)` | **挂在根上下文**：事件从会话服务那里发出，插件自己的 ctx 是它的兄弟、不是祖先。`assistant/message` 的 data 是 `{ turn, step, message, stream, usage?, interrupted? }`，人话在 `message.content` 里 `{ type: 'text', text }` 那些块；`turn/end` 的 data 是 `{ turn, reason }`。一轮工具循环会有多条 `assistant/message`，要回一句话就得按 `turn/end` 聚合 |

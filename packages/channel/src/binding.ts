@@ -1,5 +1,7 @@
-import { mkdir, realpath } from 'node:fs/promises'
+import { mkdir, readFile, realpath } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { exposableActions, toolSpec } from './capabilities.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
@@ -25,6 +27,13 @@ export { Config }
  */
 interface AgentLike {
   followup(message: UserMessage): void
+  /** agent 作用域：工具与提示词段挂在这里，只对这一条会话生效。 */
+  ctx?: AgentScopeLike
+}
+
+interface AgentScopeLike {
+  tools?: { register(definition: unknown): unknown }
+  systemPrompt?: { section(section: { name: string; order: number; text: string; interpolate?: boolean }): unknown }
 }
 
 /** 模型三件套；省略表示跟随部署默认。 */
@@ -146,6 +155,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const pending = new Map<string, string[]>()
   /** 已经挂进工作区的会话，一个进程只挂一次。 */
   const attached = new Set<string>()
+  /** 已经配好工具与人格段的会话，一个进程只配一次。 */
+  const equipped = new Set<string>()
+  /** 这些贡献挂在别人的作用域上，插件卸载时要自己收回来。 */
+  const disposers: Array<() => void> = []
+  let persona: Promise<string> | undefined
+
+  ctx.effect(() => () => {
+    for (const off of disposers.splice(0)) {
+      try {
+        off()
+      } catch {
+        /* 作用域可能先一步没了 */
+      }
+    }
+  }, 'channel-binding.contributions')
 
   ctx.inject(['agents'], (scoped) => {
     const agents = (scoped as unknown as { agents: AgentsLike }).agents
@@ -170,6 +194,53 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       })
     }
 
+    /**
+     * 给一条会话装上它该有的东西：人格文本，和这个场所能自主执行的动作。
+     *
+     * 都挂在 `agent.ctx` 上 —— 作用域注册只对这一个 agent 可见，
+     * 不会串到别的群，也不会污染全局工具表。
+     */
+    const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
+      if (equipped.has(sessionId)) return
+      equipped.add(sessionId)
+
+      const scope = agent.ctx
+      if (scope === undefined) return
+
+      persona ??= readPersonaText(dir)
+      const text = await persona
+      if (text !== '' && scope.systemPrompt !== undefined) {
+        try {
+          const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
+          if (typeof off === 'function') disposers.push(off as () => void)
+        } catch (error) {
+          log.error('人格提示段注册失败：%s', String(error))
+        }
+      }
+
+      const driver = ctx.channels.getDriver(chat.protocol)
+      if (driver === undefined || scope.tools === undefined) return
+      for (const action of exposableActions(driver.actions ?? [])) {
+        try {
+          const off = scope.tools.register({
+            ...toolSpec(chat.venue.platform, action),
+            output: {
+              schema: { type: 'string' },
+              render: (_args: unknown, value: unknown) => [
+                { type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) },
+              ],
+            },
+            async execute(args: Record<string, unknown>) {
+              return JSON.stringify(await driver.call(action.name, args ?? {}))
+            },
+          })
+          if (typeof off === 'function') disposers.push(off as () => void)
+        } catch (error) {
+          log.error('工具注册失败（%s）：%s', action.name, String(error))
+        }
+      }
+    }
+
     scoped.on('channels/event', (event: KernelEvent) => {
       // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。
       if (event.type !== 'message') return
@@ -181,17 +252,19 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       if (!isAddressed(event)) return
 
       const sessionId = `shixu-${venue}`
-      targets.set(sessionId, {
+      const chat: ChatSession = {
         key: venue,
         venue: event.venue,
         protocol: event.protocol,
         conversationType: event.conversationType,
-      })
+      }
+      targets.set(sessionId, chat)
 
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log)
         const record = await workspace
         const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        await equip(sessionId, agent, chat)
         agent.followup(toUserMessage(renderInbound(event)))
       })
     })
@@ -272,6 +345,15 @@ export function isAddressed(event: KernelEvent): boolean {
     const userId = (segment.data as { userId?: unknown }).userId
     return typeof userId === 'string' && userId === self
   })
+}
+
+/** 人格文本。没有这个文件就是空字符串 —— 人格只是没写自我介绍，不是坏了。 */
+async function readPersonaText(dir: string): Promise<string> {
+  try {
+    return (await readFile(join(dir, 'persona.md'), 'utf8')).trim()
+  } catch {
+    return ''
+  }
 }
 
 /** 模型三件套；provider 或 model 缺一个就不指定，交给部署默认。 */

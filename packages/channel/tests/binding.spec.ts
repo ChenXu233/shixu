@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { mkdir, realpath, stat } from 'node:fs/promises'
+import { mkdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -18,6 +18,9 @@ class FakeAgents extends Service {
   resumed: string[] = []
   persisted = new Set<string>()
   live = new Map<string, any>()
+  /** agent 作用域上收到的东西：工具与提示词段。 */
+  tools: any[] = []
+  sections: any[] = []
 
   constructor(ctx: Context) {
     super(ctx, 'agents')
@@ -46,7 +49,15 @@ class FakeAgents extends Service {
 
   spawn(id: string) {
     const calls: any[] = []
-    const agent = { sessionId: id, calls, followup: (message: any) => { calls.push(message) } }
+    const agent = {
+      sessionId: id,
+      calls,
+      followup: (message: any) => { calls.push(message) },
+      ctx: {
+        tools: { register: (definition: any) => { this.tools.push(definition); return () => {} } },
+        systemPrompt: { section: (section: any) => { this.sections.push(section); return () => {} } },
+      },
+    }
     this.live.set(id, agent)
     return agent
   }
@@ -372,6 +383,46 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     expect(agents.created.map((one) => one.sessionId)).toEqual(['shixu-fake:bot:p1'])
+  })
+
+  /**
+   * 破损类：**模型手里没有工具**（人格只会聊天），或者**拿到了它不该自主执行的动作**。
+   */
+  it('动作目录变成这个场所的工具，执行会打到驱动', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+    await tick()
+
+    const echo = agents.tools.find((tool) => tool.name === 'fake_echo')
+    expect(echo).toBeDefined()
+
+    const result = await echo.execute({ text: 'hi' })
+    expect(JSON.parse(result)).toEqual({ ok: true })
+    expect(driver.sent.at(-1)).toEqual({ action: 'echo', params: { text: 'hi' } })
+  })
+
+  it('persona.md 变成一条系统提示段', async () => {
+    const dir = join(home, 'persona', 'default')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'persona.md'), '我是时煦，说话简短。', 'utf8')
+
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+    await tick()
+
+    expect(agents.sections).toHaveLength(1)
+    expect(agents.sections[0].text).toBe('我是时煦，说话简短。')
+    // 人设是给人写的，里面的 {{…}} 不该被当成提示词变量去解析。
+    expect(agents.sections[0].interpolate).toBe(false)
+  })
+
+  it('没有 persona.md 就不装提示段，人格只是没写自我介绍', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+    await tick()
+
+    expect(agents.sections).toHaveLength(0)
+    expect(agents.tools).toHaveLength(1)
   })
 })
 

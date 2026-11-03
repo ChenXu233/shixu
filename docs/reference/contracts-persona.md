@@ -12,7 +12,7 @@
 
 ```text
 $DSH_HOME/persona/<personaId>/
-├── persona.md          人设 / 性格 / 说话风格（可热重载）
+├── persona.md          人设 / 性格 / 说话风格（重建会话或重启进程时读取）
 ├── memory/
 │   ├── core.json       自我事实（我是谁、我在忙什么）
 │   ├── public.json     可对外说的话
