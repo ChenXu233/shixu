@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { mkdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -90,6 +92,20 @@ class FakeWorkspaces extends Service {
   }
 }
 
+/** 假的附件服务：记下收到什么、回一个可辨认的引用。 */
+class FakeAttachments extends Service {
+  seen: any[] = []
+
+  constructor(ctx: Context) {
+    super(ctx, 'attachments')
+  }
+
+  async admitPromptContent(content: any[]) {
+    this.seen = content
+    return content.map((part) => (part.type === 'image' ? { type: 'image', attachment: 'ref-1' } : part))
+  }
+}
+
 /** 假的部署默认模型：人格没指定时应当读它。 */
 class FakeDefaultModel extends Service {
   selection: { provider?: string; model?: string; reasoningEffort?: string } = {
@@ -129,18 +145,20 @@ describe('场所 → agent 绑定', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  async function boot(config: Record<string, unknown> = {}, options: { defaultModel?: boolean } = {}) {
+  async function boot(config: Record<string, unknown> = {}, options: { defaultModel?: boolean; attachments?: boolean } = {}) {
     h = makeApp()
     await h.use(Channels)
     await h.use(fakeDriver)
     await h.use(FakeAgents)
     await h.use(FakeWorkspaces)
     if (options.defaultModel === true) await h.use(FakeDefaultModel)
+    if (options.attachments === true) await h.use(FakeAttachments)
     await h.use(binding, config)
     return {
       driver: h.app.channels.getDriver('fake')!,
       agents: h.app.get('agents') as FakeAgents,
       workspaces: h.app.get('workspaceRegistry') as FakeWorkspaces,
+      attachments: h.app.get('attachments') as FakeAttachments | undefined,
     }
   }
 
@@ -423,6 +441,59 @@ describe('场所 → agent 绑定', () => {
 
     expect(agents.sections).toHaveLength(0)
     expect(agents.tools).toHaveLength(1)
+  })
+
+  /**
+   * 破损类：**发了一张图，人格却只看到「[image]」**。
+   * 用户看到：截图问它问题，它答非所问，因为它压根没看见图。
+   */
+  it('图片先落成附件，再作为图片块进消息', async () => {
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    )
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'image/png', 'content-length': String(png.length) })
+      response.end(png)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    const port = (server.address() as AddressInfo).port
+
+    try {
+      const { driver, agents, attachments } = await boot({}, { attachments: true })
+      driver.simulateInbound({
+        conversationId: 'g1',
+        mentions: ['bot'],
+        text: '这张图里是什么',
+        images: ['http://127.0.0.1:' + port + '/a.png'],
+      })
+      await tick()
+
+      const content = agents.get('shixu-fake:bot:g1').calls[0].content
+      expect(content).toHaveLength(2)
+      expect(content[0].type).toBe('text')
+      expect(content[1]).toEqual({ type: 'image', attachment: 'ref-1' })
+      // 交给附件服务的是 base64 与认出来的类型，不是一个地址。
+      expect(attachments?.seen[1]).toMatchObject({ type: 'image', mediaType: 'image/png' })
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it('取不到图就退回纯文本，不让一张坏图吞掉整条消息', async () => {
+    const { driver, agents, attachments } = await boot({}, { attachments: true })
+    driver.simulateInbound({
+      conversationId: 'g1',
+      mentions: ['bot'],
+      text: '图挂了',
+      images: ['http://127.0.0.1:1/never.png'],
+    })
+    await tick()
+
+    const content = agents.get('shixu-fake:bot:g1').calls[0].content
+    expect(content).toHaveLength(1)
+    expect(content[0].type).toBe('text')
+    expect(attachments?.seen).toHaveLength(0)
   })
 })
 

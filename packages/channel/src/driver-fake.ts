@@ -32,6 +32,8 @@ export interface FakeDriver extends ChannelDriver {
     change?: MemberChange
     /** 这条消息 @ 了谁（账号 id）。群里只有 @ 到机器人时人格才会被叫起来。 */
     mentions?: string[]
+    /** 消息里带的图片地址，模拟平台上真有人发图。 */
+    images?: string[]
     /** 是不是机器人自己发的。 */
     self?: boolean
   }): UnifiedEvent
@@ -91,6 +93,7 @@ export function apply(ctx: Context): void {
           : [
               ...(input.mentions ?? []).map((userId) => ({ type: 'mention' as const, data: { userId } })),
               { type: 'text', data: { text: input.text } },
+              ...(input.images ?? []).map((url) => ({ type: 'image' as const, data: { url } })),
             ]
       const event: UnifiedEvent = {
         id: `fake-${++sequence}`,

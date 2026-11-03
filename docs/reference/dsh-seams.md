@@ -32,6 +32,7 @@
 | 作用域 | `agent.ctx` | 工具 / 提示词段 / 监听器 / 限制，**只对该 agent 生效**，dispose 自动撤销 |
 | 工具注册 | `ctx.tools.register(def)` | 收的是**编译好的** `ToolDefinition`：`parameters` 必须是 JSON Schema，`output: { schema, render }`。`defineTool` 只是开发期的糖 —— 它把 DSL 编译成 JSON Schema，并在 `execute` 外面套一层参数校验；不想多装一份 dsh 内部包就手写这个对象（`register` 只校验 `output.schema`，不看 `parameters`） |
 | 工具作用域 | 在 `agent.ctx` 上 `register` | 作用域注册只对那一个 agent 可见，不污染全局工具表；同名的全局工具会被遮蔽 |
+| 图片进消息 | `ctx.attachments.admitPromptContent([{ type:'text', text }, { type:'image', data: base64, mediaType }, …])` | 返回的块里图片已经换成**持久引用**，直接放进 user 消息的 `content`。传的是字节不是地址：模型看不到 URL，它要的是图 |
 | 工具收窄 | `ctx.tools.restrict(filter)` | 只删；`ctx.tools.guard()` 只拒（同步） |
 | 审批闸门 | `tools/pre-execute`（可返回 ask，异步征询） | 平台写操作的唯一入口 |
 | 审批服务 | `ctx.approval.request(req)` / `setPolicy` | 策略 ask（默认）/ never；审计 `approval/asked`、`approval/decided` |

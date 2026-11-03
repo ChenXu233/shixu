@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
+import { fetchImage } from './images.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
@@ -89,8 +90,14 @@ interface Logger {
 export interface UserMessage {
   id: string
   role: 'user'
-  content: [{ type: 'text'; text: string }]
+  /** 文本块，加上已经落成附件的图片块。 */
+  content: Array<{ type: 'text'; text: string } | { type: 'image'; attachment: unknown }>
   source: { kind: 'user' }
+}
+
+/** 附件服务里我们用得到的那一件：把编码图片换成持久引用。 */
+interface AttachmentsLike {
+  admitPromptContent(content: unknown[]): Promise<unknown[]>
 }
 
 /** 一条入站消息变成一个 user 消息，id 每条唯一（平台消息 id 可能重复，不能拿来当它）。 */
@@ -101,6 +108,53 @@ export function toUserMessage(text: string): UserMessage {
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
   }
+}
+
+/**
+ * 一条入站消息变成模型真正收到的内容。
+ *
+ * 图片要**先落成附件**再进消息：模型看到的是图，不是一个 `[image]` 字样。
+ * 取不到图就退回纯文本，不让一张坏图吞掉整条消息。
+ */
+export async function toInboundMessage(
+  event: KernelEvent,
+  attachments: AttachmentsLike | undefined,
+  log?: Logger,
+): Promise<UserMessage> {
+  const text = renderInbound(event)
+  const images = await inboundImages(event, log)
+  if (images.length === 0 || attachments === undefined) return toUserMessage(text)
+
+  const content = await attachments.admitPromptContent([{ type: 'text', text }, ...images])
+  return {
+    id: globalThis.crypto.randomUUID(),
+    role: 'user',
+    content: content as UserMessage['content'],
+    source: { kind: 'user' },
+  }
+}
+
+/** 把事件里的图片段取回来；取不到的跳过，顺序保持原样。 */
+async function inboundImages(event: KernelEvent, log?: Logger): Promise<Array<{ type: 'image'; data: string; mediaType: string }>> {
+  const urls = (event.message ?? [])
+    .filter((segment) => segment.type === 'image')
+    .map((segment) => String((segment.data as { url?: unknown }).url ?? ''))
+    .filter((url) => url !== '')
+
+  const images: Array<{ type: 'image'; data: string; mediaType: string }> = []
+  for (const url of urls) {
+    try {
+      const image = await fetchImage(url)
+      if (image === undefined) {
+        log?.info('图片取不到或不是图片，跳过：%s', url)
+        continue
+      }
+      images.push({ type: 'image', ...image })
+    } catch (error) {
+      log?.error('图片下载失败：%s', String(error))
+    }
+  }
+  return images
 }
 
 /** 一条入站消息渲染成模型看到的样子。来源事实走前缀，不走 source kind。 */
@@ -147,6 +201,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const dir = personaDir(personaRoot(), personaId)
   const title = `时煦-${personaId}`
   const log = ctx.logger('channel-binding')
+  const attachments = resolveAttachments(ctx)
   let workspace: Promise<WorkspaceRecordLike | undefined> | undefined
 
   /** 会话 → 回到哪个场所。agent 的回答要靠它找回原群。 */
@@ -265,7 +320,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const record = await workspace
         const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
-        agent.followup(toUserMessage(renderInbound(event)))
+        agent.followup(await toInboundMessage(event, attachments, log))
       })
     })
   })
@@ -345,6 +400,16 @@ export function isAddressed(event: KernelEvent): boolean {
     const userId = (segment.data as { userId?: unknown }).userId
     return typeof userId === 'string' && userId === self
   })
+}
+
+/** 附件服务是可选依赖：没有它，图片就退回成纯文本，消息照样送进去。 */
+function resolveAttachments(ctx: Context): AttachmentsLike | undefined {
+  try {
+    const probe = ctx.root as unknown as { get?(name: string): unknown; attachments?: AttachmentsLike }
+    return probe.attachments ?? (typeof probe.get === 'function' ? (probe.get('attachments') as AttachmentsLike | undefined) : undefined)
+  } catch {
+    return undefined
+  }
 }
 
 /** 人格文本。没有这个文件就是空字符串 —— 人格只是没写自我介绍，不是坏了。 */
