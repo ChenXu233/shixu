@@ -30,6 +30,10 @@ export interface FakeDriver extends ChannelDriver {
     conversationType?: VenueKind
     type?: 'message' | 'member'
     change?: MemberChange
+    /** 这条消息 @ 了谁（账号 id）。群里只有 @ 到机器人时人格才会被叫起来。 */
+    mentions?: string[]
+    /** 是不是机器人自己发的。 */
+    self?: boolean
   }): UnifiedEvent
   /** driver 收到的出站调用，按顺序。 */
   readonly sent: SentCall[]
@@ -84,7 +88,10 @@ export function apply(ctx: Context): void {
       const segments: MessageSegment[] =
         input.type === 'member' || input.text === undefined
           ? []
-          : [{ type: 'text', data: { text: input.text } }]
+          : [
+              ...(input.mentions ?? []).map((userId) => ({ type: 'mention' as const, data: { userId } })),
+              { type: 'text', data: { text: input.text } },
+            ]
       const event: UnifiedEvent = {
         id: `fake-${++sequence}`,
         type: input.type ?? 'message',
@@ -92,7 +99,7 @@ export function apply(ctx: Context): void {
         conversationType: input.conversationType ?? 'group',
         timestamp: Date.now(),
         actor: { id: userId, ...(input.name === undefined ? {} : { name: input.name }) },
-        self: false,
+        self: input.self ?? false,
         messageId: `m-${sequence}`,
         message: segments,
         text: input.text ?? '',

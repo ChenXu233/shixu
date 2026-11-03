@@ -135,8 +135,8 @@ describe('场所 → agent 绑定', () => {
 
   it('一个场所一个 agent：同群第二条消息复用', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '第一条' })
-    driver.simulateInbound({ conversationId: 'g1', text: '第二条' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '第一条' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '第二条' })
     await tick()
 
     expect(agents.created).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('场所 → agent 绑定', () => {
 
   it('新场所的会话落在人格工作区里：cwd 是 persona/<id>，目录真的建出来', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     const dir = join(home, 'persona', 'default')
@@ -156,7 +156,7 @@ describe('场所 → agent 绑定', () => {
 
   it('人格 id 改了，工作区跟着走', async () => {
     const { driver, agents } = await boot({ personaId: 'arisu' })
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(agents.created[0].cwd).toBe(join(home, 'persona', 'arisu'))
@@ -164,7 +164,7 @@ describe('场所 → agent 绑定', () => {
 
   it('工作区在侧栏里叫 时煦-<人格名>', async () => {
     const { driver, workspaces } = await boot({ personaId: 'arisu' })
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(workspaces.created).toEqual(['时煦-arisu'])
@@ -176,7 +176,7 @@ describe('场所 → agent 绑定', () => {
     const record = { path: dir, title: '人格 · default', setTitle: async (next: string) => { record.title = next } }
     workspaces.records.push(record)
 
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(workspaces.created).toHaveLength(0)
@@ -186,7 +186,7 @@ describe('场所 → agent 绑定', () => {
   it('已经落过盘的会话走恢复，不会被重建', async () => {
     const { driver, agents } = await boot()
     agents.persisted.add('shixu-fake:bot:g1')
-    driver.simulateInbound({ conversationId: 'g1', text: '接着说' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '接着说' })
     await tick()
 
     expect(agents.created).toHaveLength(0)
@@ -195,8 +195,8 @@ describe('场所 → agent 绑定', () => {
 
   it('关掉的场所不唤醒人格：不建 agent、不投递', async () => {
     const { driver, agents } = await boot({ mutedVenues: ['fake:bot:g1'] })
-    driver.simulateInbound({ conversationId: 'g1', text: '在吗' })
-    driver.simulateInbound({ conversationId: 'g2', text: '在吗' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '在吗' })
+    driver.simulateInbound({ conversationId: 'g2', mentions: ['bot'], text: '在吗' })
     await tick()
 
     expect(agents.created.map((one) => one.sessionId)).toEqual(['shixu-fake:bot:g2'])
@@ -204,21 +204,21 @@ describe('场所 → agent 绑定', () => {
 
   it('配了模型就带上，没配就跟随默认', async () => {
     const explicit = await boot({ provider: 'openrouter', model: 'deepseek-v4.1-flash-oc' })
-    explicit.driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    explicit.driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
     expect(explicit.agents.created[0].model).toEqual({ provider: 'openrouter', model: 'deepseek-v4.1-flash-oc' })
     await h?.dispose()
     h = undefined
 
     const silent = await boot()
-    silent.driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    silent.driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
     expect(silent.agents.created[0].model).toBeUndefined()
   })
 
   it('没指定模型就跟随部署默认：不然会话没有模型，每一轮都装配失败', async () => {
     const { driver, agents } = await boot({}, { defaultModel: true })
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(agents.created[0].model).toEqual({
@@ -230,7 +230,7 @@ describe('场所 → agent 绑定', () => {
 
   it('人格自己指定的模型优先于部署默认', async () => {
     const { driver, agents } = await boot({ provider: 'gemini-lumiya', model: 'gemini-4-argon' }, { defaultModel: true })
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(agents.created[0].model).toEqual({ provider: 'gemini-lumiya', model: 'gemini-4-argon' })
@@ -238,8 +238,8 @@ describe('场所 → agent 绑定', () => {
 
   it('并发不乱序：同群两条同时到达，顺序与到达顺序一致', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '先' })
-    driver.simulateInbound({ conversationId: 'g1', text: '后' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '先' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '后' })
     await tick()
 
     const calls = agents.get('shixu-fake:bot:g1').calls
@@ -250,8 +250,8 @@ describe('场所 → agent 绑定', () => {
 
   it('不同场所各有自己的 agent', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: 'A 群' })
-    driver.simulateInbound({ conversationId: 'g2', text: 'B 群' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: 'A 群' })
+    driver.simulateInbound({ conversationId: 'g2', mentions: ['bot'], text: 'B 群' })
     await tick()
 
     expect(agents.created).toHaveLength(2)
@@ -261,7 +261,7 @@ describe('场所 → agent 绑定', () => {
 
   it('来源事实走消息前缀（不进 source kind）', async () => {
     const { driver, agents } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', userId: 'u1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', userId: 'u1', mentions: ['bot'], text: '你好' })
     await tick()
 
     const text = agents.get('shixu-fake:bot:g1').calls[0].content[0].text
@@ -271,7 +271,7 @@ describe('场所 → agent 绑定', () => {
 
   it('人格说的话回到原场所：一条 turn 只发一条', async () => {
     const { driver } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     const sessionId = 'shixu-fake:bot:g1'
@@ -295,7 +295,7 @@ describe('场所 → agent 绑定', () => {
 
   it('只调工具不说话的一轮，不往群里发空消息', async () => {
     const { driver } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     h.app.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
@@ -310,7 +310,7 @@ describe('场所 → agent 绑定', () => {
 
   it('别的会话说的话不会被发到这个场所', async () => {
     const { driver } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     h.app.emit('session/event', { id: 'shixu-fake:bot:g2' }, {
@@ -325,7 +325,7 @@ describe('场所 → agent 绑定', () => {
 
   it('会话挂进人格工作区，侧栏里找得到', async () => {
     const { driver, workspaces } = await boot()
-    driver.simulateInbound({ conversationId: 'g1', text: '你好' })
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     expect(workspaces.attached).toEqual(['shixu-fake:bot:g1'])
@@ -336,6 +336,42 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', type: 'member', change: 'join' })
     await tick()
     expect(agents.created).toHaveLength(0)
+  })
+
+  /**
+   * 破损类：**它在不该开口的时候开口**。
+   * 用户看到：群里没人在叫它，它却逐条接话；或者它回自己一句，然后停不下来。
+   */
+  it('自己发的消息不唤醒自己（否则它回一句就再接一句）', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '我说的话', self: true })
+    await tick()
+
+    expect(agents.created).toHaveLength(0)
+  })
+
+  it('群里没 @ 它就不说话', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', text: '两个人自己聊' })
+    await tick()
+
+    expect(agents.created).toHaveLength(0)
+  })
+
+  it('@ 的是别人也不算叫它', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['u-other'], text: '问一下你' })
+    await tick()
+
+    expect(agents.created).toHaveLength(0)
+  })
+
+  it('私聊不用 @ 也会回', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'p1', conversationType: 'private', text: '在吗' })
+    await tick()
+
+    expect(agents.created.map((one) => one.sessionId)).toEqual(['shixu-fake:bot:p1'])
   })
 })
 

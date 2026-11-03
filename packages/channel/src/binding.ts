@@ -173,9 +173,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     scoped.on('channels/event', (event: KernelEvent) => {
       // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。
       if (event.type !== 'message') return
+      // 自己说的话不叫醒自己：否则它一发出去就收到自己那条，接着回自己。
+      if (event.self) return
       if ((event.text ?? '') === '') return
       const venue = venueKeyOf(event)
       if (!isVenueEnabled(config, venue)) return
+      if (!isAddressed(event)) return
 
       const sessionId = `shixu-${venue}`
       targets.set(sessionId, {
@@ -253,6 +256,22 @@ function defaultModel(ctx: Context): AgentModel | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * 现在该不该开口。
+ *
+ * 私聊必回；群与频道里只在被 @ 到时开口。一个群里有人聊天不代表在叫它 ——
+ * 逐条接话会把它变成噪音源，而噪音源会被踢出去。
+ */
+export function isAddressed(event: KernelEvent): boolean {
+  if (event.conversationType === 'private') return true
+  const self = event.venue.accountId
+  return (event.message ?? []).some((segment) => {
+    if (segment.type !== 'mention') return false
+    const userId = (segment.data as { userId?: unknown }).userId
+    return typeof userId === 'string' && userId === self
+  })
 }
 
 /** 模型三件套；provider 或 model 缺一个就不指定，交给部署默认。 */
