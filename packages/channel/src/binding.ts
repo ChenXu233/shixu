@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
+import { CONDUCT } from './conduct.js'
 import { createJournal, type Journal } from './journal.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
@@ -248,10 +249,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   let trust: Identity = { owners: [], trusted: [] }
   /** 平台 → 出厂权限矩阵。动作目录变了才会重算。 */
   const matrices = new Map<string, PermissionMatrix>()
-  /** 会话 → （消息 id → 说话的 subject）。会话事件只给消息 id，不给平台用户。 */
-  const subjectsByMessage = new Map<string, Map<string, string>>()
-  /** 会话 → 这一轮里真的开过口的人。动作执行时按它判权限。 */
-  const speakers = new Map<string, Set<string>>()
+  /** 会话 → （消息 id → 谁说的）。会话事件只给消息 id，不给平台用户。 */
+  const subjectsByMessage = new Map<string, Map<string, { subject: string; name?: string }>>()
+  /** 会话 → 这一轮里真的开过口的人（id → 显示名）。动作执行时按它判权限。 */
+  const speakers = new Map<string, Map<string, string | undefined>>()
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
   const turnDone = new Map<string, () => void>()
 
@@ -305,34 +306,41 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const args = (exec.arguments ?? {}) as Record<string, unknown>
     const declared = typeof args.principal === 'string' ? args.principal.trim() : ''
 
-    const speaking = speakers.get(sessionId) ?? new Set<string>()
+    const speaking = speakers.get(sessionId) ?? new Map<string, string | undefined>()
+    /** 拒绝的理由说成一件**事**，不是一句错误码：模型要拿它去跟人说话。 */
+    const who = (id: string): string => {
+      const display = speaking.get(id)
+      return display === undefined || display === '' ? `「${id}」` : `「${display}」`
+    }
+
     let subject = ''
     if (declared === SELF) {
       subject = SELF
     } else if (declared !== '') {
       if (!speaking.has(declared)) {
         fail('permission', `拒绝 ${name}：${declared} 不是这一轮里说话的人`)
-        return `拒绝：${declared} 不在这一轮里说话。替谁做，就要是谁开的口。`
+        return `这次不执行。${who(declared)} 这一轮没有说话 —— 我只替真的开了口的人办事。`
       }
       subject = declared
     } else if (speaking.size === 1) {
-      subject = [...speaking][0] ?? ''
+      subject = [...speaking.keys()][0] ?? ''
     } else {
-      const who = [...speaking].join('、')
-      fail('permission', `拒绝 ${name}：分不清替谁做（${who || '没有人'}）`)
+      const names = [...speaking.keys()].map(who).join('、')
+      fail('permission', `拒绝 ${name}：分不清替谁做（${names || '没有人'}）`)
       return speaking.size === 0
-        ? '拒绝：这一轮没有发起人。要么等有人说话，要么声明 principal="self"。'
-        : `拒绝：这一轮有 ${who} 在说话，调用时必须声明 principal 是替谁做的。`
+        ? '这次不执行：这一轮没有谁开口，我不知道该替谁办。'
+        : `这次不执行：这一轮有 ${names} 在说话，分不清该替谁办。`
     }
 
     const role = roleOf(subject, trust)
     const matrix = matrices.get(platform)
-    if (matrix === undefined) return '拒绝：这个场所还没有可用的动作目录'
+    if (matrix === undefined) return '这次不执行：这个场所还没有能做的事。'
 
     const decision = judge(matrix, role, name)
     if (decision === 'allow') return ''
     fail('permission', `拒绝 ${name}：${subject} 是 ${role}（${decision}）`)
-    return `没有权限：${subject} 是 ${role}，${name} 不在它的可执行范围内`
+    if (subject === SELF) return '这次不执行：这件事不在我自己做主的范围里。'
+    return `这次不执行。想让我做这件事的是${who(subject)}，而这件事我只替信得过的人做。`
   }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
@@ -344,12 +352,22 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       persona ??= readPersonaText(dir)
       const text = await persona
-      if (text !== '' && scope.systemPrompt !== undefined) {
+      if (scope.systemPrompt !== undefined) {
+        if (text !== '') {
+          try {
+            const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
+            if (typeof off === 'function') disposers.push(off as () => void)
+          } catch (error) {
+            fail('equip', `人格提示段注册失败：${String(error)}`)
+          }
+        }
+
+        // 引擎自带的那一段：拒绝该怎么说出口。人格只管语气，这条不该由人肉保证。
         try {
-          const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
+          const off = scope.systemPrompt.section({ name: 'shixu:conduct', order: 11, text: CONDUCT, interpolate: false })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
-          fail('equip', `人格提示段注册失败：${String(error)}`)
+          fail('equip', `行为守则提示段注册失败：${String(error)}`)
         }
       }
 
@@ -426,8 +444,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const message = await toInboundMessage(event, attachments, log, journal)
         // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
         // 所以投递前先把消息 id 记下来，等 user/message 事件到了一查就知道是谁。
-        const byMessage = subjectsByMessage.get(sessionId) ?? new Map<string, string>()
-        byMessage.set(message.id, event.actor?.id ?? '')
+        const byMessage = subjectsByMessage.get(sessionId) ?? new Map<string, { subject: string; name?: string }>()
+        byMessage.set(message.id, { subject: event.actor?.id ?? '', name: event.actor?.name })
         subjectsByMessage.set(sessionId, byMessage)
 
         agent.followup(message)
@@ -451,10 +469,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       // 更不是「平台上谁是管理员」。
       if (event.type === 'user/message') {
         const id = (event.data as { message?: { id?: unknown } } | undefined)?.message?.id
-        const subject = typeof id === 'string' ? subjectsByMessage.get(session.id)?.get(id) : undefined
-        if (subject !== undefined) {
-          const set = speakers.get(session.id) ?? new Set<string>()
-          set.add(subject)
+        const said = typeof id === 'string' ? subjectsByMessage.get(session.id)?.get(id) : undefined
+        if (said !== undefined) {
+          const set = speakers.get(session.id) ?? new Map<string, string | undefined>()
+          set.set(said.subject, said.name)
           speakers.set(session.id, set)
         }
         return
