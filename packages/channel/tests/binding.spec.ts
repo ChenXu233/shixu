@@ -462,7 +462,7 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    expect(agents.sections.map((section) => section.name)).toEqual(['shixu:conduct'])
+    expect(agents.sections).toHaveLength(0)
     expect(agents.tools.map((tool) => tool.name)).toEqual(['fake_echo', 'fake_poke'])
   })
 

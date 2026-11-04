@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
-import { CONDUCT } from './conduct.js'
 import { createJournal, type Journal } from './journal.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
@@ -352,22 +351,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       persona ??= readPersonaText(dir)
       const text = await persona
-      if (scope.systemPrompt !== undefined) {
-        if (text !== '') {
-          try {
-            const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
-            if (typeof off === 'function') disposers.push(off as () => void)
-          } catch (error) {
-            fail('equip', `人格提示段注册失败：${String(error)}`)
-          }
-        }
-
-        // 引擎自带的那一段：拒绝该怎么说出口。人格只管语气，这条不该由人肉保证。
+      if (text !== '' && scope.systemPrompt !== undefined) {
         try {
-          const off = scope.systemPrompt.section({ name: 'shixu:conduct', order: 11, text: CONDUCT, interpolate: false })
+          const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
-          fail('equip', `行为守则提示段注册失败：${String(error)}`)
+          fail('equip', `人格提示段注册失败：${String(error)}`)
         }
       }
 
