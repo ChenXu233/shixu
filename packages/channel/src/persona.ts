@@ -22,6 +22,9 @@ export const Config = z.object({
   personaId: z.string().default('default'),
   // 别人可能用来叫它的名字。群里没 @、但打了名字，也算在叫它。
   aliasNames: z.array(z.string()).default([]).volatile(),
+  // 回复要不要引用原消息：`never`（默认）/ `when-older`（答的不是最新那条时）/ `always`。
+  // 真人不是每句都引用 —— 这是「像不像人」的一部分，所以交给主人定，不写死在代码里。
+  quote: z.string().default('never').volatile(),
   // 模型三件套：留空 = 跟随部署默认（设置页里那个默认模型）。
   provider: z.string().volatile(),
   model: z.string().volatile(),

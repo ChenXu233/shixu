@@ -342,10 +342,8 @@ describe('场所 → agent 绑定', () => {
     const sent = (driver as any).sent
     expect(sent).toHaveLength(1)
     expect(sent[0].action).toBe('send')
-    // 正文一条；前面那条是引用，指向把它叫醒的消息。
-    const [quote, body] = sent[0].params.segments
-    expect(quote.type).toBe('quote')
-    expect(body).toEqual({ type: 'text', data: { text: '我查一下\n\n查到了，是 42' } })
+    // 默认不引用：一条回复就是一条正文。
+    expect(sent[0].params.segments).toEqual([{ type: 'text', data: { text: '我查一下\n\n查到了，是 42' } }])
   })
 
   it('只调工具不说话的一轮，不往群里发空消息', async () => {
@@ -584,8 +582,19 @@ describe('场所 → agent 绑定', () => {
       await new Promise((resolve) => setTimeout(resolve, 30))
     }
 
-    it('群里回答会引用把它叫醒的那条', async () => {
+    it('默认不引用：真人不每句都挂回原消息', async () => {
       const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '看看这个' })
+      await tick()
+      await speak(agents, 'shixu-fake:bot:g1')
+
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments).toHaveLength(1)
+      expect(sent.params.segments[0].type).toBe('text')
+    })
+
+    it('主人说要引用时才引用', async () => {
+      const { driver, agents } = await boot({ quote: 'always' })
       const event = driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '看看这个' })
       await tick()
       await speak(agents, 'shixu-fake:bot:g1')
@@ -595,15 +604,27 @@ describe('场所 → agent 绑定', () => {
       expect(sent.params.segments[1].type).toBe('text')
     })
 
+    it('答的不是最新那条时，when-older 才引用', async () => {
+      const { driver, agents } = await boot({ quote: 'when-older' })
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '这个报错怎么修' })
+      await tick()
+      // 它还在想的时候，群里又说了两句 —— 这时候不引用，没人知道它在答哪句。
+      driver.simulateInbound({ conversationId: 'g1', text: '另外那个呢' })
+      await tick()
+      await speak(agents, 'shixu-fake:bot:g1')
+
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments[0].type).toBe('quote')
+    })
+
     it('私聊不引用：一来一回本来就没有歧义', async () => {
-      const { driver, agents } = await boot()
+      const { driver, agents } = await boot({ quote: 'always' })
       driver.simulateInbound({ conversationId: 'p1', conversationType: 'private', text: '在吗' })
       await tick()
       await speak(agents, 'shixu-fake:bot:p1')
 
       const sent = driver.sent.find((call) => call.action === 'send') as any
       expect(sent.params.segments).toHaveLength(1)
-      expect(sent.params.segments[0].type).toBe('text')
     })
   })
 

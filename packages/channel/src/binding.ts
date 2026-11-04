@@ -234,8 +234,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const targets = new Map<string, ChatSession>()
   /** 会话 → 这一轮已经说出来的话。一次 turn 只发一条，否则一句话会被拆成好几条。 */
   const pending = new Map<string, string[]>()
-  /** 会话 → 把它叫醒的那条消息。回复要引用它，否则群里不知道在答哪句。 */
-  const triggers = new Map<string, string>()
+  /** 会话 → 把它叫醒的那条消息（id + 时间），引用与否要看配置。 */
+  const triggers = new Map<string, { id: string; at: number }>()
   /** 已经挂进工作区的会话，一个进程只挂一次。 */
   const attached = new Set<string>()
   /** 已经配好工具与人格段的会话，一个进程只配一次。 */
@@ -470,7 +470,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
         trust = await readIdentity(dir)
 
-        if (event.messageId !== undefined && event.messageId !== '') triggers.set(sessionId, event.messageId)
+        if (event.messageId !== undefined && event.messageId !== '') {
+          triggers.set(sessionId, { id: event.messageId, at: event.timestamp })
+        }
 
         const message = await toInboundMessage(event, attachments, log, journal)
         // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
@@ -484,6 +486,31 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       })
     })
   })
+
+  /**
+   * 一句话要带引用吗 —— 这是主人定的口味，不是引擎定的。
+   *
+   * `never`（默认）：真人不每句都引用，引用多了像客服系统。
+   * `when-older`：答的不是最新那条时才引用 —— 那种时候不引用，群里真不知道在答哪句。
+   * `always`：只在明确想要「每条都挂回原消息」的场合用。
+   */
+  const replySegments = (sessionId: string, chat: ChatSession, text: string): MessageSegment[] => {
+    const plain: MessageSegment[] = [{ type: 'text', data: { text } }]
+    const mode = readField<string>(config.quote) ?? 'never'
+    if (mode === 'never') return plain
+
+    const trigger = triggers.get(sessionId)
+    const canQuote = ctx.channels.getDriver(chat.protocol)?.capabilities.sendQuote === true
+    if (trigger === undefined || !canQuote || chat.conversationType === 'private') return plain
+
+    if (mode === 'when-older') {
+      // chat.key 与感知缓冲用的是同一个场所键（都来自 venueKeyOf）。
+      const newer = (perception.state(chat.key)?.recent ?? []).some((message) => message.at > trigger.at)
+      if (!newer) return plain
+    }
+
+    return [{ type: 'quote', data: { messageId: trigger.id } }, ...plain]
+  }
 
   /**
    * 出站：人格说出来的话，回到它说话的那个场所。
@@ -525,18 +552,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
       if (text !== '') {
-        // 群里回答要引用触发它的那条：一热闹就没人知道它在答哪句。
-        const quote = triggers.get(session.id) ?? ''
-        const canQuote = ctx.channels.getDriver(chat.protocol)?.capabilities.sendQuote === true
-        const segments: MessageSegment[] =
-          canQuote && quote !== '' && chat.conversationType !== 'private'
-            ? [
-                { type: 'quote', data: { messageId: quote } },
-                { type: 'text', data: { text } },
-              ]
-            : [{ type: 'text', data: { text } }]
-
-        void ctx.channels.send(chat, segments).catch((error: unknown) => {
+        void ctx.channels.send(chat, replySegments(session.id, chat, text)).catch((error: unknown) => {
           fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
         })
       }
