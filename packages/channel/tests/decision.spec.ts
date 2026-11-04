@@ -53,6 +53,11 @@ describe('这一批要不要接', () => {
     expect(neglected.score).toBeGreaterThan(recent.score)
   })
 
+  it('从没在这个场所说过话，不算「久未开口」', () => {
+    // 否则它一进群就想插嘴：只要来一条没叫它的消息就够分。
+    expect(decide({ ...base, pending: 1, sinceLastSpokeMs: 0 }).act).toBe('silence')
+  })
+
   it('阈值只有一个出处', () => {
     expect(SPEAK_THRESHOLD).toBe(2)
   })

@@ -443,7 +443,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           named: aliases.some((alias) => alias !== '' && text.includes(alias)),
           isPrivate: event.conversationType === 'private',
           silenceStreak: state?.silenceStreak ?? 0,
-          sinceLastSpokeMs: state === undefined || state.lastSpokeAt === 0 ? 86_400_000 : Date.now() - state.lastSpokeAt,
+          // 从没在这个场所说过话 ≠ 很久没说话。给「从没说过」加分等于一进群就想插嘴。
+          sinceLastSpokeMs: state === undefined || state.lastSpokeAt === 0 ? 0 : Date.now() - state.lastSpokeAt,
         })
         perception.markJudged(venue, decision.act === 'speak')
         journal.note('attention', `${venue} ${decision.act} score=${decision.score}｜${decision.reasons.join('，')}`)
