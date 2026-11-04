@@ -12,7 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Channels } from 'dsh-shixu-channel'
 import type { ChannelDriver, ChatSession, MessageSegment, UnifiedEvent } from 'dsh-shixu-channel/contracts'
 import { Config, type DriverConfig } from './config.js'
-import { ACTIONS, ACTION_API, CAPABILITIES, normalize, toOneBotMessage, type RawEvent } from './protocol.js'
+import { ACTIONS, ACTION_API, CAPABILITIES, normalize, normalizeHistory, toOneBotMessage, type RawEvent } from './protocol.js'
 import { ForwardWs, ReverseWs, type Transport } from './transport.js'
 
 /** 配置 schema 要给装载器看见，否则 host 不知道这一行有哪些字段。 */
@@ -64,6 +64,44 @@ export function apply(ctx: Context, config: DriverConfig): void {
         return { ...(messageId === undefined ? {} : { messageId: String(messageId) }), degradations: [] }
       }
 
+
+      // 历史与搜索要问平台：缓冲只是内核在运行时听到的那一段，重启就没了。
+      if (action === 'history' || action === 'search') {
+        const session = (params as { session?: ChatSession }).session
+        if (session === undefined) throw new Error('onebot11: history 需要场所信息')
+        const isGroup = session.conversationType !== 'private'
+        const target = isGroup
+          ? { group_id: Number(session.venue.conversationId) }
+          : { user_id: Number(session.venue.conversationId) }
+
+        const page = async (count: number, before?: string) => {
+          const data = await transport.call(isGroup ? 'get_group_msg_history' : 'get_friend_msg_history', {
+            ...target,
+            count,
+            ...(before === undefined ? {} : { message_seq: Number(before) }),
+          })
+          return normalizeHistory(data)
+        }
+
+        if (action === 'history') {
+          const limit = Math.max(1, Math.min(Number((params as { limit?: unknown }).limit ?? 20) || 20, 100))
+          const before = (params as { before?: unknown }).before
+          return await page(limit, typeof before === 'string' && before !== '' ? before : undefined)
+        }
+
+        const keyword = String((params as { keyword?: unknown }).keyword ?? '').trim()
+        if (keyword === '') throw new Error('onebot11: search 需要关键词')
+        const want = Math.max(1, Math.min(Number((params as { limit?: unknown }).limit ?? 10) || 10, 50))
+        const hits: Awaited<ReturnType<typeof page>> = []
+        let cursor: string | undefined
+        for (let round = 0; round < 3 && hits.length < want; round += 1) {
+          const batch = await page(100, cursor)
+          if (batch.length === 0) break
+          for (const one of batch) if (one.text.includes(keyword)) hits.push(one)
+          cursor = batch[batch.length - 1]?.id
+        }
+        return hits.slice(0, want)
+      }
       const binding = ACTION_API[action]
       if (binding === undefined) throw new Error(`onebot11: 不认识的动作 "${action}"`)
       return await transport.call(binding.api, binding.build((params ?? {}) as Record<string, unknown>))

@@ -133,6 +133,8 @@ describe('动作目录', () => {
       'set_role',
       'approve_join',
       'leave',
+      'history',
+      'search',
     ])
     expect(ACTION_API.mute?.build({ groupId: '222', userId: '333', durationSeconds: 60 })).toEqual({
       group_id: 222,

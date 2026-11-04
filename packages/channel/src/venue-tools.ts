@@ -1,15 +1,15 @@
 /**
- * 内核给每个场所装的三件工具：看历史、指定发到哪、主动发一条。
+ * 内核给每个场所补的两件工具：指定这一轮发到哪、主动发一条。
  *
- * 为什么在渠道层而不是驱动里：它们说的是「这个会话里发生的事」，任何一个平台都有，
- * 只是消息 id 与出站段的形状不同 —— 那两样都由驱动负责，这里只用统一段。
+ * 为什么不是驱动的事：`reply_to` 不是平台能力，它是「把这条回复挂回哪条消息」的出站指令；
+ * `send` 走的是内核的出站路径（和自动回复同一条）。读历史那种要问平台的事，归驱动。
  */
 import type { ChatSession, MessageSegment } from './contracts.js'
 import { PRINCIPAL_PARAMETER } from './capabilities.js'
 import type { Perception } from './perception.js'
 
 export interface VenueToolContext {
-  /** 平台前缀，工具名按目录惯例带它（qq_history / qq_send）。 */
+  /** 平台前缀，工具名按目录惯例带它（qq_reply_to / qq_send）。 */
   platform: string
   /** 场所键，与感知缓冲同一个键。 */
   venueKey: string
@@ -29,38 +29,16 @@ export interface VenueTool {
 }
 
 export function venueTools(context: VenueToolContext): VenueTool[] {
-  const { platform, venueKey, sessionId, chat, perception, send, setOutbound } = context
+  const { platform, sessionId, chat, send, setOutbound } = context
 
   return [
-    {
-      name: platform + '_history',
-      description: '看看这个会话最近说了什么，每条前面带消息 id。回答更早的消息、要引用某一条时先用它。',
-      parameters: {
-        type: 'object',
-        properties: {
-          limit: { type: 'integer', description: '要几条，默认 20，最多 50' },
-          principal: PRINCIPAL_PARAMETER,
-        },
-        required: ['principal'],
-      },
-      async run(args) {
-        const limit = Math.max(1, Math.min(Number(args.limit ?? 20) || 20, 50))
-        const recent = perception.state(venueKey)?.recent ?? []
-        const lines = recent.slice(-limit).map((one) => {
-          const who = one.name === undefined || one.name === '' ? one.subject : one.name
-          const body = one.text === '' ? (one.images > 0 ? '[图片]' : '[空消息]') : one.text
-          return '[' + one.id + '] ' + who + '：' + body
-        })
-        return lines.length === 0 ? '（这个会话还没有消息）' : lines.join('\n')
-      },
-    },
     {
       name: platform + '_reply_to',
       description: '指定：这一轮我说完的话，挂在哪条消息下面（引用回复）。只影响这一轮的正文。',
       parameters: {
         type: 'object',
         properties: {
-          messageId: { type: 'string', description: '取自 ' + platform + '_history 里的 id' },
+          messageId: { type: 'string', description: '取自历史里的消息 id' },
           principal: PRINCIPAL_PARAMETER,
         },
         required: ['messageId', 'principal'],

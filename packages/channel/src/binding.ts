@@ -372,11 +372,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       if (driver === undefined || scope.tools === undefined) return
 
       const actions = exposableActions(driver.actions ?? [])
-      const kernelNames = [
-        `${chat.venue.platform}_history`,
-        `${chat.venue.platform}_reply_to`,
-        `${chat.venue.platform}_send`,
-      ]
+      // history / search 由驱动提供（平台有历史接口）；内核只补「怎么说」的两件。
+      const kernelNames = [`${chat.venue.platform}_reply_to`, `${chat.venue.platform}_send`]
       let matrix = matrices.get(chat.venue.platform)
       if (matrix === undefined) {
         matrix = seedMatrix(chat.venue.platform, actions, kernelNames)
@@ -394,9 +391,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
               ],
             },
             async execute(args: Record<string, unknown>) {
-              // principal 只是给判定看的，不往平台上传。
+              // principal 只是给判定看的，不往平台上传；场所身份随调用带上，
+              // 模型不该自己背「这个群是哪个 group_id」。
               const { principal: _principal, ...params } = args ?? {}
-              return JSON.stringify(await driver.call(action.name, params))
+              return JSON.stringify(await driver.call(action.name, { ...params, session: chat }))
             },
           })
           if (typeof off === 'function') disposers.push(off as () => void)

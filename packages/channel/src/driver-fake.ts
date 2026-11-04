@@ -78,6 +78,22 @@ export function apply(ctx: Context): void {
         scope: 'venue',
       },
       {
+        name: 'history',
+        description: '读这个会话的历史消息，每条带 id。测试用。',
+        parameters: { limit: { type: 'number' } },
+        risk: 'read',
+        reversible: true,
+        scope: 'venue',
+      },
+      {
+        name: 'search',
+        description: '按关键词找历史消息。测试用。',
+        parameters: { keyword: { type: 'string', required: true } },
+        risk: 'read',
+        reversible: true,
+        scope: 'venue',
+      },
+      {
         name: 'poke',
         description: '戳一下某人。可逆，但会打扰到人。测试用。',
         parameters: { userId: { type: 'string', required: true } },
@@ -91,6 +107,10 @@ export function apply(ctx: Context): void {
     },
     async call(action, params) {
       sent.push({ action, params })
+      // 历史与搜索返回驱动归一化后的样子；真驱动从平台接口拿。
+      if (action === 'history' || action === 'search') {
+        return [{ id: 'm-1', sender: 'u-1', name: '老王', text: '老王说了句什么', at: 0 }]
+      }
       return { ok: true }
     },
     simulateInbound(input) {

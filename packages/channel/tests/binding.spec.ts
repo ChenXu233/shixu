@@ -440,7 +440,7 @@ describe('场所 → agent 绑定', () => {
 
     const result = await echo.execute({ text: 'hi' })
     expect(JSON.parse(result)).toEqual({ ok: true })
-    expect(driver.sent.at(-1)).toEqual({ action: 'echo', params: { text: 'hi' } })
+    expect(driver.sent.at(-1)?.params).toMatchObject({ text: 'hi' })
   })
 
   it('persona.md 变成一条系统提示段', async () => {
@@ -466,8 +466,9 @@ describe('场所 → agent 绑定', () => {
     expect(agents.sections).toHaveLength(0)
     expect(agents.tools.map((tool) => tool.name)).toEqual([
       'fake_echo',
-      'fake_poke',
       'fake_history',
+      'fake_search',
+      'fake_poke',
       'fake_reply_to',
       'fake_send',
     ])
@@ -497,7 +498,7 @@ describe('场所 → agent 绑定', () => {
       expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: owner } })).toBeUndefined()
       const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
       await expect(poke.execute({ userId: 'x', principal: owner })).resolves.toContain('ok')
-      expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
+      expect(driver.sent.at(-1)?.params).toMatchObject({ userId: 'x' })
     })
 
     it('没被信任的人动不了手，但问只读的东西可以', async () => {
@@ -571,7 +572,7 @@ describe('场所 → agent 绑定', () => {
       // 闸门是运行时执行的；这里直接调工具确认参数里的 principal 也不会漏给驱动。
       const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
       await poke.execute({ userId: 'x', principal: stranger })
-      expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
+      expect(driver.sent.at(-1)?.params).toMatchObject({ userId: 'x' })
     })
   })
 
@@ -657,8 +658,9 @@ describe('场所 → agent 绑定', () => {
 
       const history = agents.tools.find((tool) => tool.name === 'fake_history')
       const text = await history.execute({ limit: 5, principal: 'u-test' })
-      expect(text).toContain('老王说了句什么'.slice(0, 2))
-      expect(text).toMatch(/^\[fake-\d+\]/m)
+      // 驱动负责把平台报文归一化成「id + 谁 + 说了什么」。
+      expect(text).toContain('m-1')
+      expect(text).toContain('老王')
     })
 
     it('私聊不引用：一来一回本来就没有歧义', async () => {

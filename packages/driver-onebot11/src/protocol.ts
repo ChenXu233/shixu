@@ -139,6 +139,22 @@ export const ACTIONS: ActionDescriptor[] = [
     reversible: false,
     scope: 'venue',
   },
+  {
+    name: 'history',
+    description: '读这个会话的历史消息，每条带消息 id。回答更早的话、要引用某一条时先用它。',
+    parameters: { limit: { type: 'number', description: '要几条，默认 20，最多 100' }, before: { type: 'string', description: '可选：从哪条消息往前翻' } },
+    risk: 'read',
+    reversible: true,
+    scope: 'venue',
+  },
+  {
+    name: 'search',
+    description: '在这个会话的历史里按关键词找消息，返回带 id 的命中。平台没有搜索接口，是拉几页再筛。',
+    parameters: { keyword: { type: 'string', required: true, description: '要找的词' }, limit: { type: 'number', description: '最多返回几条，默认 10' } },
+    risk: 'read',
+    reversible: true,
+    scope: 'venue',
+  },
 ]
 
 /** 动作名 → OneBot 的 API 名与参数整形。OneBot 的 snake_case 到此为止。 */
@@ -166,6 +182,49 @@ export const ACTION_API: Record<
     build: (p) => ({ flag: String(p.flag ?? ''), approve: p.approve !== false }),
   },
   leave: { api: 'set_group_leave', build: (p) => ({ group_id: asId(p.groupId) }) },
+}
+/**
+ * 平台的历史消息 → 模型看得懂的样子：id、谁、说了什么、什么时候。
+ *
+ * 平台给的是嵌套段加一堆用不上的字段；原样丢给模型等于让它读报文。
+ */
+export function normalizeHistory(data: unknown): Array<{ id: string; sender: string; name?: string; text: string; at: number }> {
+  const messages = (data as { messages?: unknown } | undefined)?.messages
+  if (!Array.isArray(messages)) return []
+
+  const out: Array<{ id: string; sender: string; name?: string; text: string; at: number }> = []
+  for (const raw of messages) {
+    const item = raw as {
+      message_id?: unknown
+      message?: RawSegment[] | string
+      time?: unknown
+      sender?: { user_id?: unknown; nickname?: string; card?: string }
+    }
+    if (item.message_id === undefined) continue
+    const id = String(item.message_id)
+    if (id === '') continue
+
+    const segments = typeof item.message === 'string' ? [{ type: 'text', data: { text: item.message } }] : (item.message ?? [])
+    const text = segments
+      .map((segment) => {
+        if (segment.type === 'text') return String((segment.data as { text?: unknown }).text ?? '')
+        if (segment.type === 'image') return '[图片]'
+        if (segment.type === 'at') return '@' + String((segment.data as { qq?: unknown }).qq ?? '')
+        return ''
+      })
+      .join('')
+      .trim()
+
+    const name = item.sender?.card ?? item.sender?.nickname
+    out.push({
+      id,
+      sender: item.sender?.user_id === undefined ? '' : String(item.sender.user_id),
+      ...(name === undefined || name === '' ? {} : { name }),
+      text,
+      at: toMillis(item.time),
+    })
+  }
+  return out
 }
 
 /** OneBot 里 id 是数字，我们的会话里是字符串；空值一律当 0 交给平台去报错。 */
