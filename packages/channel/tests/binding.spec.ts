@@ -464,7 +464,13 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     expect(agents.sections).toHaveLength(0)
-    expect(agents.tools.map((tool) => tool.name)).toEqual(['fake_echo', 'fake_poke'])
+    expect(agents.tools.map((tool) => tool.name)).toEqual([
+      'fake_echo',
+      'fake_poke',
+      'fake_history',
+      'fake_reply_to',
+      'fake_send',
+    ])
   })
 
   /**
@@ -615,6 +621,44 @@ describe('场所 → agent 绑定', () => {
 
       const sent = driver.sent.find((call) => call.action === 'send') as any
       expect(sent.params.segments[0].type).toBe('quote')
+    })
+
+    it('模型自己指定挂哪条：它调了 reply_to 就照它说的', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '看看这个' })
+      await tick()
+
+      const replyTo = agents.tools.find((tool) => tool.name === 'fake_reply_to')
+      expect(replyTo).toBeDefined()
+      await replyTo.execute({ messageId: 'm-old', principal: 'u-test' })
+
+      await speak(agents, 'shixu-fake:bot:g1')
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments[0]).toEqual({ type: 'quote', data: { messageId: 'm-old' } })
+    })
+
+    it('模型能直接发一条，不用等这一轮结束', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+      await tick()
+
+      const sendNow = agents.tools.find((tool) => tool.name === 'fake_send')
+      await sendNow.execute({ text: '我先说一句', principal: 'u-test' })
+
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments).toEqual([{ type: 'text', data: { text: '我先说一句' } }])
+    })
+
+    it('模型能查这个会话最近说了什么，带消息 id', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', text: '老王说了句什么' })
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '总结一下' })
+      await tick()
+
+      const history = agents.tools.find((tool) => tool.name === 'fake_history')
+      const text = await history.execute({ limit: 5, principal: 'u-test' })
+      expect(text).toContain('老王说了句什么'.slice(0, 2))
+      expect(text).toMatch(/^\[fake-\d+\]/m)
     })
 
     it('私聊不引用：一来一回本来就没有歧义', async () => {

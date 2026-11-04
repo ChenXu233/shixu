@@ -6,6 +6,7 @@ import { fetchImage } from './images.js'
 import { decide } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { Perception } from './perception.js'
+import { venueTools } from './venue-tools.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type MessageSegment, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
@@ -236,6 +237,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const pending = new Map<string, string[]>()
   /** 会话 → 把它叫醒的那条消息（id + 时间），引用与否要看配置。 */
   const triggers = new Map<string, { id: string; at: number }>()
+  /** 会话 → 模型让这一轮的正文挂到哪条消息下面（qq_reply_to 设的）。 */
+  const outbound = new Map<string, string>()
   /** 已经挂进工作区的会话，一个进程只挂一次。 */
   const attached = new Set<string>()
   /** 已经配好工具与人格段的会话，一个进程只配一次。 */
@@ -369,9 +372,14 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       if (driver === undefined || scope.tools === undefined) return
 
       const actions = exposableActions(driver.actions ?? [])
+      const kernelNames = [
+        `${chat.venue.platform}_history`,
+        `${chat.venue.platform}_reply_to`,
+        `${chat.venue.platform}_send`,
+      ]
       let matrix = matrices.get(chat.venue.platform)
       if (matrix === undefined) {
-        matrix = seedMatrix(chat.venue.platform, actions)
+        matrix = seedMatrix(chat.venue.platform, actions, kernelNames)
         matrices.set(chat.venue.platform, matrix)
       }
 
@@ -394,6 +402,35 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
           fail('equip', `工具注册失败（${action.name}）：${String(error)}`)
+        }
+      }
+
+      for (const tool of venueTools({
+        platform: chat.venue.platform,
+        venueKey: chat.key,
+        sessionId,
+        chat,
+        perception,
+        send: (target, segments) => ctx.channels.send(target, segments),
+        setOutbound: (id, messageId) => outbound.set(id, messageId),
+      })) {
+        try {
+          const off = scope.tools.register({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            output: {
+              schema: { type: 'string' },
+              render: (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }],
+            },
+            async execute(args: Record<string, unknown>) {
+              const { principal: _principal, ...rest } = args ?? {}
+              return await tool.run(rest)
+            },
+          })
+          if (typeof off === 'function') disposers.push(off as () => void)
+        } catch (error) {
+          fail('equip', `内核工具注册失败（${tool.name}）：${String(error)}`)
         }
       }
 
@@ -496,11 +533,22 @@ export function apply(ctx: Context, config: PersonaConfig): void {
    */
   const replySegments = (sessionId: string, chat: ChatSession, text: string): MessageSegment[] => {
     const plain: MessageSegment[] = [{ type: 'text', data: { text } }]
+    const canQuote = ctx.channels.getDriver(chat.protocol)?.capabilities.sendQuote === true
+
+    // 模型自己指定的优先：它调过 reply_to，就照它说的挂。
+    const chosen = outbound.get(sessionId)
+    if (chosen !== undefined) {
+      outbound.delete(sessionId)
+      if (canQuote && chat.conversationType !== 'private') {
+        return [{ type: 'quote', data: { messageId: chosen } }, ...plain]
+      }
+      return plain
+    }
+
     const mode = readField<string>(config.quote) ?? 'never'
     if (mode === 'never') return plain
 
     const trigger = triggers.get(sessionId)
-    const canQuote = ctx.channels.getDriver(chat.protocol)?.capabilities.sendQuote === true
     if (trigger === undefined || !canQuote || chat.conversationType === 'private') return plain
 
     if (mode === 'when-older') {
@@ -560,6 +608,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
       speakers.delete(session.id)
       subjectsByMessage.delete(session.id)
+      outbound.delete(session.id)
     })
     return () => void off?.()
   }, 'channel-binding.replies')

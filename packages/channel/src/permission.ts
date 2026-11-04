@@ -58,20 +58,33 @@ export function turnActorOf(subject: string, identity: Identity, venueId: string
  * owner 什么都能用（那是他的机器）；trusted 能用这个场所里的动作（含可逆的写），
  * 但碰不到主机上的工具；guest 只有只读的场所动作。规则从后往前判，读起来就是执行顺序。
  */
-export function seedMatrix(platform: string, actions: readonly ActionDescriptor[]): PermissionMatrix {
+export function seedMatrix(
+  platform: string,
+  actions: readonly ActionDescriptor[],
+  kernel: readonly string[] = [],
+): PermissionMatrix {
   const names = actions.map((action) => ({
     name: toolName(platform, action),
     read: action.risk === 'read',
   }))
 
+  // 内核工具（看历史、说话）是在场的基本能力，任何角色都该有：
+  // 不让 guest 说话，等于它连回一句都做不到。
+  const speak: PermissionRule[] = kernel.map((name) => ({ match: name, decision: 'allow' as const }))
+
   const readOnly: PermissionRule[] = [
     { match: '*', decision: 'deny' },
+    ...speak,
     ...names.filter((item) => item.read).map((item) => ({ match: item.name, decision: 'allow' as const })),
   ]
 
   return {
     owner: [{ match: '*', decision: 'allow' }],
-    trusted: [{ match: '*', decision: 'deny' }, ...names.map((item) => ({ match: item.name, decision: 'allow' as const }))],
+    trusted: [
+      { match: '*', decision: 'deny' },
+      ...speak,
+      ...names.map((item) => ({ match: item.name, decision: 'allow' as const })),
+    ],
     guest: readOnly,
     autonomous: readOnly,
   }
