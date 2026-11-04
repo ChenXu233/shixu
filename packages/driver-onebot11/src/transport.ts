@@ -31,6 +31,13 @@ export interface ReverseWsOptions {
   path?: string
   /** 留空表示不校验；生产必须填。 */
   accessToken?: string
+  /**
+   * 已经有一条活着的连接时，新的连接要不要顶掉它。默认不顶（`false`）：
+   * 一个账号只有一条连接，误连的客户端不该把正在用的那条踢掉。
+   */
+  takeover?: boolean
+  /** 多久没收到对方任何报文就当它已经死了。默认 90 秒：OneBot 心跳默认 30 秒，留三次余量。 */
+  peerStaleMs?: number
 }
 
 export interface ForwardWsOptions {
@@ -57,6 +64,11 @@ abstract class SocketTransport implements Transport {
   private readonly pending = new Map<string, Pending>()
   private handler: ((event: unknown) => void) | undefined
   private sequence = 0
+  /** 最近一次收到对端报文的时间，用来判断「这条连接还算活着吗」。 */
+  private lastSeen = 0
+
+  /** 默认 90 秒：OneBot 心跳默认 30 秒，留三次余量。 */
+  protected staleMs = 90_000
 
   onEvent(handler: (event: unknown) => void): void {
     this.handler = handler
@@ -87,11 +99,27 @@ abstract class SocketTransport implements Transport {
     })
   }
 
-  /** 认下一条能收发的 socket。一个账号一条连接：新的顶掉旧的，避免两路同时发消息。 */
+  /**
+   * 现在这条连接还算活着吗 —— 开着、并且最近确实收到过东西。
+   *
+   * 只看 `readyState` 不够：对端进程卡死或网线拔掉时，socket 会一直显示 OPEN，
+   * 要等内核超时才变成 CLOSED。那段时间里它发不出也收不到。
+   */
+  protected peerAlive(): boolean {
+    const socket = this.socket
+    if (socket === undefined || socket.readyState !== WebSocket.OPEN) return false
+    return Date.now() - this.lastSeen < this.staleMs
+  }
+
+  /** 认下一条能收发的 socket。 */
   protected adopt(socket: WebSocket): void {
     const previous = this.socket
     this.socket = socket
-    socket.on('message', (data) => this.receive(String(data)))
+    this.lastSeen = Date.now()
+    socket.on('message', (data) => {
+      this.lastSeen = Date.now()
+      this.receive(String(data))
+    })
     if (previous !== undefined && previous !== socket) previous.close()
   }
 
@@ -176,6 +204,14 @@ export class ReverseWs extends SocketTransport {
     if (expected !== undefined && expected !== '' && authorization !== `Bearer ${expected}`) {
       // 1008 = policy violation。不认的连接直接关，不给它发任何东西。
       socket.close(1008, 'unauthorized')
+      return
+    }
+
+    this.staleMs = this.options.peerStaleMs ?? 90_000
+    if (this.options.takeover !== true && this.peerAlive()) {
+      // 已经有一条活着的连接：新来的这条不接。一个账号只有一条连接，
+      // 误连的客户端不该把正在回消息的那条挤掉。
+      socket.close(1008, 'another client is already connected')
       return
     }
 

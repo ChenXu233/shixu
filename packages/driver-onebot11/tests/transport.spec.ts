@@ -52,6 +52,52 @@ describe('反向 WebSocket', () => {
     expect(events).toHaveLength(1)
   })
 
+  /**
+   * 破损类：**一次误连把真正在用的机器人挤下线**。
+   *
+   * 用户看到：机器人突然不回话了，过一会儿又自己好了 —— 而且没有任何报错说得清原因。
+   */
+  it('第二个客户端连不进来，也不会把正在用的那条挤掉', async () => {
+    const first = await connect('k')
+
+    const second = new WebSocket(`ws://127.0.0.1:${server!.port}`, { headers: { authorization: 'Bearer k' } })
+    const code = await new Promise<number>((resolve) => second.once('close', (value) => resolve(value)))
+    expect(code).toBe(1008)
+
+    // 原来那条照常能收事件：拒绝新连接不能顺手把老的也断了。
+    const events: unknown[] = []
+    server!.onEvent((event) => events.push(event))
+    first.send(JSON.stringify({ post_type: 'message', message_type: 'group', group_id: 11, user_id: 22 }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(events).toHaveLength(1)
+  })
+
+  it('老连接半天没动静，就换新的接管', async () => {
+    server = new ReverseWs({ host: '127.0.0.1', port: 0, accessToken: 'k', peerStaleMs: 120 })
+    await server.start()
+
+    const first = new WebSocket(`ws://127.0.0.1:${server.port}`, { headers: { authorization: 'Bearer k' } })
+    await new Promise<void>((resolve, reject) => {
+      first.once('open', () => resolve())
+      first.once('error', reject)
+    })
+    await new Promise((resolve) => setTimeout(resolve, 220))
+
+    const second = new WebSocket(`ws://127.0.0.1:${server.port}`, { headers: { authorization: 'Bearer k' } })
+    client = second
+    await new Promise<void>((resolve, reject) => {
+      second.once('open', () => resolve())
+      second.once('error', reject)
+    })
+
+    const events: unknown[] = []
+    server.onEvent((event) => events.push(event))
+    second.send(JSON.stringify({ post_type: 'message', message_type: 'group', group_id: 33, user_id: 44 }))
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(events).toHaveLength(1)
+    expect(server.connected).toBe(true)
+  })
+
   it('令牌不对的连接进不来，也就发不出任何东西', async () => {
     server = new ReverseWs({ host: '127.0.0.1', port: 0, accessToken: 'k' })
     await server.start()
