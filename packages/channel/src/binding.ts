@@ -324,9 +324,11 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     } else if (speaking.size === 1) {
       subject = [...speaking.keys()][0] ?? ''
     } else {
-      const names = [...speaking.keys()].map((id) => id + named(id)).join(', ')
-      fail('permission', `拒绝 ${name}：本轮发起人缺失或多于一个（${names || '无'}）`)
-      return `拒绝：tool=${name} 原因=本轮发起人缺失或多于一个（${names || '无'}）`
+      // 一个场所一轮只该有一个人说话。真出现零个或两个，是我们的追踪坏了，
+      // 按拒绝处理并记一笔 —— 但不为它设计话术，也不为它写测试：一千轮真实会话里
+      // 一次都没发生过（同轮多条的，都是同一个人连发）。
+      fail('permission', `拒绝 ${name}：本轮发起人不唯一（${[...speaking.keys()].join(',') || '无'}）`)
+      return `拒绝：tool=${name} 原因=无法确定发起人`
     }
 
     const role = roleOf(subject, trust)
