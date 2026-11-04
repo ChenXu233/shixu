@@ -456,8 +456,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       judgeTimers.delete(venue)
       const state = perception.state(venue)
       if (state === undefined) return
+      const pending = state.pending.length
       const decision = decide({
-        pending: state.pending.length,
+        pending,
         mentioned: false,
         named: false,
         isPrivate,
@@ -465,8 +466,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         sinceLastSpokeMs: state.lastSpokeAt === 0 ? 0 : Date.now() - state.lastSpokeAt,
       })
       perception.markJudged(venue, decision.act === 'speak')
-      journal.note('attention', `${venue} ${decision.act} score=${decision.score} 积压=${state.pending.length}｜${decision.reasons.join('，')}`)
-    }, 3_000)
+      journal.note('attention', `${venue} ${decision.act} score=${decision.score} 积压=${pending}｜${decision.reasons.join('，')}`)
+    }, readField<number>(config.judgeWindowMs) ?? 3_000)
     judgeTimers.set(venue, timer)
   }
     scoped.on('channels/event', (event: KernelEvent) => {

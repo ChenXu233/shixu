@@ -22,6 +22,8 @@ export const Config = z.object({
   personaId: z.string().default('default'),
   // 别人可能用来叫它的名字。群里没 @、但打了名字，也算在叫它。
   aliasNames: z.array(z.string()).default([]).volatile(),
+  // 攒多久再判一次「要不要接话」（毫秒）。太短等于一条一判，太长会错过话头。
+  judgeWindowMs: z.number().default(3000).volatile(),
   // 回复要不要引用原消息：`never`（默认）/ `when-older`（答的不是最新那条时）/ `always`。
   // 真人不是每句都引用 —— 这是「像不像人」的一部分，所以交给主人定，不写死在代码里。
   quote: z.string().default('never').volatile(),

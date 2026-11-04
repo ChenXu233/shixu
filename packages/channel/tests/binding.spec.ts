@@ -686,14 +686,17 @@ describe('场所 → agent 绑定', () => {
       expect(agents.created).toHaveLength(1)
     })
 
-    it('没叫它的消息先记下来，但不叫醒它', async () => {
-      const { driver, agents } = await boot({ aliasNames: ['时煦'] })
+    it('没叫它的消息先记下来，攒一批再判，但不叫醒它', async () => {
+      const { driver, agents } = await boot({ aliasNames: ['时煦'], judgeWindowMs: 50 })
       driver.simulateInbound({ conversationId: 'g1', text: '今天好热' })
-      await tick()
+      driver.simulateInbound({ conversationId: 'g1', text: '是啊，三十八度' })
+      await new Promise((resolve) => setTimeout(resolve, 200))
 
       expect(agents.created).toHaveLength(0)
       const log = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
+      // 一批两条，而不是一条一判。
       expect(log).toContain('attention')
+      expect(log).toContain('积压=2')
     })
 
     it('人设三段分别进提示词：我是谁 / 什么时候说话 / 怎么说话', async () => {
