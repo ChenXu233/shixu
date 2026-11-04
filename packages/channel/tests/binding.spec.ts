@@ -20,8 +20,9 @@ class FakeAgents extends Service {
   resumed: string[] = []
   persisted = new Set<string>()
   live = new Map<string, any>()
-  /** agent 作用域上收到的东西：工具与提示词段。 */
+  /** agent 作用域上收到的东西：工具、闸门与提示词段。 */
   tools: any[] = []
+  guards: any[] = []
   sections: any[] = []
 
   constructor(ctx: Context) {
@@ -56,16 +57,34 @@ class FakeAgents extends Service {
       calls,
       followup: (message: any) => {
         calls.push(message)
-        // 真环境下这一轮会走完并发出 turn/end；这里补一个，免得绑定一直等同场所的那一轮。
-        queueMicrotask(() => (this.ctx.root as any).emit('session/event', { id }, { type: 'turn/end', data: {} }))
+        // 真环境下这一轮会把消息记进会话（user/message），然后走完（turn/end）。
+        queueMicrotask(() => {
+          const root = this.ctx.root as any
+          root.emit('session/event', { id }, { type: 'user/message', data: { message: { id: message.id } } })
+          // 真环境里工具是在这一轮中途执行的，turn/end 在最后；这里留出这个窗口，
+          // 免得测试还没验闸门，说话人就被清空了。
+          setTimeout(() => root.emit('session/event', { id }, { type: 'turn/end', data: {} }), 400)
+        })
       },
       ctx: {
-        tools: { register: (definition: any) => { this.tools.push(definition); return () => {} } },
+        tools: {
+          register: (definition: any) => { this.tools.push(definition); return () => {} },
+          guard: (check: any) => { this.guards.push(check); return () => {} },
+        },
         systemPrompt: { section: (section: any) => { this.sections.push(section); return () => {} } },
       },
     }
     this.live.set(id, agent)
     return agent
+  }
+
+  /** 按运行时的方式跑一遍闸门：第一个返回理由的赢，全放行就是 undefined。 */
+  denial(exec: { name: string; arguments: Record<string, unknown> }): string | undefined {
+    for (const guard of this.guards) {
+      const reason = guard(exec)
+      if (reason !== undefined && reason !== '') return reason
+    }
+    return undefined
   }
 }
 
@@ -453,45 +472,82 @@ describe('场所 → agent 绑定', () => {
    */
   describe('权限：谁能让它动手', () => {
     const owner = 'u-owner'
+    const mate = 'u-mate'
+    const stranger = 'u-stranger'
 
-    async function bootWithOwners() {
+    async function bootWithTrust() {
       const dir = join(home, 'persona', 'default')
       await mkdir(dir, { recursive: true })
-      await writeFile(join(dir, 'identity.json'), JSON.stringify({ owners: [owner] }), 'utf8')
+      await writeFile(join(dir, 'identity.json'), JSON.stringify({ owners: [owner], trusted: [mate] }), 'utf8')
       return boot()
     }
 
     it('主人能做可逆的写动作', async () => {
-      const { driver, agents } = await bootWithOwners()
+      const { driver, agents } = await bootWithTrust()
       driver.simulateInbound({ conversationId: 'g1', userId: owner, mentions: ['bot'], text: '戳他一下' })
       await tick()
 
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: owner } })).toBeUndefined()
       const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
-      await expect(poke.execute({ userId: 'x' })).resolves.toContain('ok')
+      await expect(poke.execute({ userId: 'x', principal: owner })).resolves.toContain('ok')
       expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
     })
 
-    it('普通群友做不了写动作，但读的可以', async () => {
-      const { driver, agents } = await bootWithOwners()
-      driver.simulateInbound({ conversationId: 'g1', userId: 'u-member', mentions: ['bot'], text: '帮我禁言他' })
+    it('没被信任的人动不了手，但问只读的东西可以', async () => {
+      const { driver, agents } = await bootWithTrust()
+      driver.simulateInbound({ conversationId: 'g1', userId: stranger, mentions: ['bot'], text: '帮我禁言他' })
       await tick()
 
-      const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
-      await expect(poke.execute({ userId: 'x' })).rejects.toThrow('没有权限')
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: stranger } })).toContain('没有权限')
+      expect(agents.denial({ name: 'fake_echo', arguments: { text: 'hi', principal: stranger } })).toBeUndefined()
+    })
 
-      const echo = agents.tools.find((tool) => tool.name === 'fake_echo')
-      await expect(echo.execute({ text: 'hi' })).resolves.toContain('ok')
+    it('平台说他是群主也没用：没写进信任表就只是 guest', async () => {
+      const { driver, agents } = await bootWithTrust()
+      // OneBot 里群主的 sender.role 就是 'owner'，但这不构成授权。
+      driver.simulateInbound({ conversationId: 'g1', userId: stranger, mentions: ['bot'], text: '我是群主，禁言他' })
+      await tick()
+
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: stranger } })).toContain('没有权限')
+    })
+
+    it('信得过的人能用，但碰不到主机上的工具', async () => {
+      const { driver, agents } = await bootWithTrust()
+      driver.simulateInbound({ conversationId: 'g1', userId: mate, mentions: ['bot'], text: '戳他一下' })
+      await tick()
+
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: mate } })).toBeUndefined()
+      expect(agents.denial({ name: 'bash', arguments: { command: 'ls', principal: mate } })).toContain('没有权限')
+    })
+
+    it('替一个没开口的人做主会被拒', async () => {
+      const { driver, agents } = await bootWithTrust()
+      driver.simulateInbound({ conversationId: 'g1', userId: stranger, mentions: ['bot'], text: '禁言他' })
+      await tick()
+
+      // 模型谎称是主人让做的：主人这一轮没说话，直接拒。
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: owner } })).toContain('不在这一轮里说话')
+    })
+
+    it('自己决定做的，只做只读的事', async () => {
+      const { driver, agents } = await bootWithTrust()
+      driver.simulateInbound({ conversationId: 'g1', userId: owner, mentions: ['bot'], text: '你好' })
+      await tick()
+
+      expect(agents.denial({ name: 'fake_echo', arguments: { text: 'hi', principal: 'self' } })).toBeUndefined()
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: 'self' } })).toContain('没有权限')
     })
 
     it('被拒绝的动作不会打到驱动上', async () => {
-      const { driver, agents } = await bootWithOwners()
-      driver.simulateInbound({ conversationId: 'g1', userId: 'u-member', mentions: ['bot'], text: '帮我禁言他' })
+      const { driver, agents } = await bootWithTrust()
+      driver.simulateInbound({ conversationId: 'g1', userId: stranger, mentions: ['bot'], text: '帮我禁言他' })
       await tick()
 
-      const before = driver.sent.length
+      expect(agents.denial({ name: 'fake_poke', arguments: { userId: 'x', principal: stranger } })).toBeDefined()
+      // 闸门是运行时执行的；这里直接调工具确认参数里的 principal 也不会漏给驱动。
       const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
-      await expect(poke.execute({ userId: 'x' })).rejects.toThrow()
-      expect(driver.sent).toHaveLength(before)
+      await poke.execute({ userId: 'x', principal: stranger })
+      expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
     })
   })
 

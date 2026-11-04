@@ -54,15 +54,31 @@ export function parameterSchema(parameters: Record<string, unknown>): Record<str
   return { type: 'object', properties, ...(required.length === 0 ? {} : { required }) }
 }
 
+/**
+ * 每个工具都多一个参数：**这次是替谁做的**。
+ *
+ * 不声明就等于没交代 —— 判定时按最窄的算。声明了也要对得上这一轮真的在说话的人，
+ * 免得模型替一个没开口的人做主。
+ */
+export const PRINCIPAL_PARAMETER = {
+  type: 'string',
+  description: '这次调用是替谁做的：说话人的用户 id；如果是你自己决定的，填 self。不确定就别调用。',
+}
+
 /** 一个动作在模型视野里的样子：名字、说明、参数 schema。 */
 export function toolSpec(platform: string, action: ActionDescriptor): {
   name: string
   description: string
   parameters: Record<string, unknown>
 } {
+  const schema = parameterSchema((action.parameters ?? {}) as Record<string, unknown>)
   return {
     name: toolName(platform, action),
     description: action.description,
-    parameters: parameterSchema((action.parameters ?? {}) as Record<string, unknown>),
+    parameters: {
+      ...schema,
+      properties: { ...(schema.properties as Record<string, unknown>), principal: PRINCIPAL_PARAMETER },
+      required: [...((schema.required as string[] | undefined) ?? []), 'principal'],
+    },
   }
 }

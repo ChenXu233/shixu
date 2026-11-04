@@ -31,6 +31,7 @@ ADR 记录的是「某一天我们决定了什么」，是历史事实：**正�
 | [0008](0008-permission-has-one-source.md) | 权限怎么表达 | 只有规则表与一个钩子，不另立函数与凭据 | accepted | P0 |
 | [0009](0009-settings-panel.md) | 配置怎么给人改 | 设置页面板是编辑器，profile patch 是唯一落盘位置；驱动补正向连接 | accepted | P2 |
 | [0010](0010-persona-config.md) | 人格的配置面 | 只有无法推出的判断算设置；场所在场是默认，配置里只列例外；所有场所共用一个 cwd | accepted | P1 |
+| [0011](0011-trust-table-is-the-only-authority.md) | 权限从哪来 | 只有主人写的信任表算授权，平台角色只是事实；工具调用必须声明替谁做 | accepted | P1 |
 | — | 涉及信用的动作类别 | 六项统一归「不可逆 + 高影响」（见[出厂矩阵](../reference/policies.md#出厂矩阵)） | accepted | P0 |
 | — | 人格与场所 | 唯一一人格；场所多个且可同时在场 | accepted | P2 |
 | — | 跨场所广播 | 延迟投递不打断：运行中的场所 `steer()`，空闲场所靠读穿 | accepted | P3 |

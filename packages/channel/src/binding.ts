@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
 import { createJournal, type Journal } from './journal.js'
-import { judge, seedMatrix, turnActorOf, type PermissionMatrix, type TurnActor } from './permission.js'
+import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
@@ -35,7 +35,11 @@ interface AgentLike {
 }
 
 interface AgentScopeLike {
-  tools?: { register(definition: unknown): unknown }
+  tools?: {
+    register(definition: unknown): unknown
+    /** 同步闸门：返回字符串就是拒绝的理由。 */
+    guard?(check: (exec: unknown) => string | undefined): unknown
+  }
   systemPrompt?: { section(section: { name: string; order: number; text: string; interpolate?: boolean }): unknown }
 }
 
@@ -235,12 +239,19 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   /** 这些贡献挂在别人的作用域上，插件卸载时要自己收回来。 */
   const disposers: Array<() => void> = []
   let persona: Promise<string> | undefined
-  /** 主人名单：唯一能跨场所的身份。读一次缓存住。 */
-  let owners: Promise<string[]> | undefined
-  /** 会话 → 这一回合是谁在说话。动作执行时按它判权限。 */
-  const actors = new Map<string, TurnActor>()
+  /**
+   * 信任表：唯一能决定「谁能让它做什么」的东西。
+   *
+   * 闸门是同步的，所以读出来的值得提前放好 —— 启动时读一次，每条消息前再读一次，
+   * 改了 identity.json 下一条消息就生效。
+   */
+  let trust: Identity = { owners: [], trusted: [] }
   /** 平台 → 出厂权限矩阵。动作目录变了才会重算。 */
   const matrices = new Map<string, PermissionMatrix>()
+  /** 会话 → （消息 id → 说话的 subject）。会话事件只给消息 id，不给平台用户。 */
+  const subjectsByMessage = new Map<string, Map<string, string>>()
+  /** 会话 → 这一轮里真的开过口的人。动作执行时按它判权限。 */
+  const speakers = new Map<string, Set<string>>()
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
   const turnDone = new Map<string, () => void>()
 
@@ -283,18 +294,46 @@ export function apply(ctx: Context, config: PersonaConfig): void {
      * 都挂在 `agent.ctx` 上 —— 作用域注册只对这一个 agent 可见，
      * 不会串到别的群，也不会污染全局工具表。
      */
-    /** 等这一轮说完。没等到就超时放行 —— 卡住一条消息，比永远堵住这个场所强。 */
-  const waitTurnEnd = (sessionId: string, timeoutMs = 120_000): Promise<void> =>
-    new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        turnDone.delete(sessionId)
-        resolve()
-      }, timeoutMs)
-      turnDone.set(sessionId, () => {
-        clearTimeout(timer)
-        resolve()
-      })
-    })
+  /**
+   * 判定这次调用能不能做。
+   *
+   * 三步：先看它声明替谁做（不声明就按这一轮唯一的发言人算），再查这个人的角色，
+   * 最后按矩阵判工具名。返回字符串就是拒绝的理由 —— 空字符串表示放行。
+   */
+  const denialFor = (sessionId: string, platform: string, exec: { name?: string; arguments?: unknown }): string => {
+    const name = exec.name ?? ''
+    const args = (exec.arguments ?? {}) as Record<string, unknown>
+    const declared = typeof args.principal === 'string' ? args.principal.trim() : ''
+
+    const speaking = speakers.get(sessionId) ?? new Set<string>()
+    let subject = ''
+    if (declared === SELF) {
+      subject = SELF
+    } else if (declared !== '') {
+      if (!speaking.has(declared)) {
+        fail('permission', `拒绝 ${name}：${declared} 不是这一轮里说话的人`)
+        return `拒绝：${declared} 不在这一轮里说话。替谁做，就要是谁开的口。`
+      }
+      subject = declared
+    } else if (speaking.size === 1) {
+      subject = [...speaking][0] ?? ''
+    } else {
+      const who = [...speaking].join('、')
+      fail('permission', `拒绝 ${name}：分不清替谁做（${who || '没有人'}）`)
+      return speaking.size === 0
+        ? '拒绝：这一轮没有发起人。要么等有人说话，要么声明 principal="self"。'
+        : `拒绝：这一轮有 ${who} 在说话，调用时必须声明 principal 是替谁做的。`
+    }
+
+    const role = roleOf(subject, trust)
+    const matrix = matrices.get(platform)
+    if (matrix === undefined) return '拒绝：这个场所还没有可用的动作目录'
+
+    const decision = judge(matrix, role, name)
+    if (decision === 'allow') return ''
+    fail('permission', `拒绝 ${name}：${subject} 是 ${role}（${decision}）`)
+    return `没有权限：${subject} 是 ${role}，${name} 不在它的可执行范围内`
+  }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
       if (equipped.has(sessionId)) return
@@ -335,23 +374,25 @@ export function apply(ctx: Context, config: PersonaConfig): void {
               ],
             },
             async execute(args: Record<string, unknown>) {
-              // 权限在这里判，不在注册时判：一个场所只有一个 agent，工具列表是共用的，
-              // 但「谁在说话」每回合都不一样。注册时拦等于把所有人当成同一个人。
-              const actor = actors.get(sessionId)
-              const role = actor?.role ?? 'guest'
-              const decision = judge(matrix, role, toolSpec(chat.venue.platform, action).name)
-              if (decision !== 'allow') {
-                fail('permission', `${action.name} 被拒：${role}（${decision}）`)
-                throw new Error(`没有权限：这条消息来自「${role}」，${action.name} 不在它的可执行范围内`)
-              }
-
-              return JSON.stringify(await driver.call(action.name, args ?? {}))
+              // principal 只是给判定看的，不往平台上传。
+              const { principal: _principal, ...params } = args ?? {}
+              return JSON.stringify(await driver.call(action.name, params))
             },
           })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
           fail('equip', `工具注册失败（${action.name}）：${String(error)}`)
         }
+      }
+
+      // 拦在闸门上而不是拦在注册时：一个场所只有一个 agent，工具列表是共用的，
+      // 但每一轮是谁在说话都不一样。闸门也顺手管住了主机上的内置工具。
+      if (typeof scope.tools.guard === 'function') {
+        const off = scope.tools.guard((exec: unknown) => {
+          const reason = denialFor(sessionId, chat.venue.platform, exec as { name?: string; arguments?: unknown })
+          return reason === '' ? undefined : reason
+        })
+        if (typeof off === 'function') disposers.push(off as () => void)
       }
     }
 
@@ -380,13 +421,16 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
 
-        owners ??= readOwners(dir)
-        actors.set(sessionId, turnActorOf(event, await owners))
+        trust = await readIdentity(dir)
 
-        agent.followup(await toInboundMessage(event, attachments, log, journal))
-        // 等同场所这一轮说完再投下一条：不然同群里两个人的消息会在一次回合里交错，
-        // 权限判定就分不清是谁在让它动手。
-        await waitTurnEnd(sessionId)
+        const message = await toInboundMessage(event, attachments, log, journal)
+        // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
+        // 所以投递前先把消息 id 记下来，等 user/message 事件到了一查就知道是谁。
+        const byMessage = subjectsByMessage.get(sessionId) ?? new Map<string, string>()
+        byMessage.set(message.id, event.actor?.id ?? '')
+        subjectsByMessage.set(sessionId, byMessage)
+
+        agent.followup(message)
       })
     })
   })
@@ -402,6 +446,19 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const off = root.on('session/event', (session, event) => {
       const chat = targets.get(session.id)
       if (chat === undefined) return
+
+      // 这一轮里谁真的开了口。权限判定只认这个集合 —— 不是「最近谁说过话」，
+      // 更不是「平台上谁是管理员」。
+      if (event.type === 'user/message') {
+        const id = (event.data as { message?: { id?: unknown } } | undefined)?.message?.id
+        const subject = typeof id === 'string' ? subjectsByMessage.get(session.id)?.get(id) : undefined
+        if (subject !== undefined) {
+          const set = speakers.get(session.id) ?? new Set<string>()
+          set.add(subject)
+          speakers.set(session.id, set)
+        }
+        return
+      }
 
       if (event.type === 'assistant/message') {
         const text = saidText((event.data as { message?: unknown } | undefined)?.message)
@@ -423,12 +480,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         })
       }
 
-      // 这一轮完了，同场所的下一条消息可以进来了。
-      const done = turnDone.get(session.id)
-      if (done !== undefined) {
-        turnDone.delete(session.id)
-        done()
-      }
+      // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
+      speakers.delete(session.id)
+      subjectsByMessage.delete(session.id)
     })
     return () => void off?.()
   }, 'channel-binding.replies')
@@ -487,14 +541,24 @@ function resolveAttachments(ctx: Context): AttachmentsLike | undefined {
   }
 }
 
-/** 主人名单。没有这个文件就没人跨场所是主人 —— 群里的管理员仍然是 trusted。 */
-async function readOwners(dir: string): Promise<string[]> {
+/**
+ * 信任表：主人和他信得过的人。
+ *
+ * 没有这个文件就是「谁都不信」—— 所有人在人格眼里都是 guest，只能聊天和问只读的东西。
+ * 平台说谁是群主不算数：群主管得着那个群，管不着这台机器。
+ */
+async function readIdentity(dir: string): Promise<Identity> {
+  const list = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id !== '') : []
+
   try {
-    const raw = JSON.parse(await readFile(join(dir, 'identity.json'), 'utf8')) as { owners?: unknown }
-    if (!Array.isArray(raw.owners)) return []
-    return raw.owners.filter((id): id is string => typeof id === 'string' && id !== '')
+    const raw = JSON.parse(await readFile(join(dir, 'identity.json'), 'utf8')) as {
+      owners?: unknown
+      trusted?: unknown
+    }
+    return { owners: list(raw.owners), trusted: list(raw.trusted) }
   } catch {
-    return []
+    return { owners: [], trusted: [] }
   }
 }
 

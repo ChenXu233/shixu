@@ -69,10 +69,13 @@ describe('工具名与参数', () => {
     expect(schema.required).toBeUndefined()
   })
 
-  it('动作变成模型视野里的一条工具声明', () => {
+  it('动作变成模型视野里的一条工具声明，并且必须声明替谁做', () => {
     const spec = toolSpec('qq', action({ name: 'member_list', description: '看看群里有哪些人', parameters: {} }))
     expect(spec.name).toBe('qq_member_list')
     expect(spec.description).toBe('看看群里有哪些人')
-    expect(spec.parameters).toEqual({ type: 'object', properties: {} })
+
+    const schema = spec.parameters as { properties: Record<string, unknown>; required: string[] }
+    expect(schema.required).toEqual(['principal'])
+    expect(schema.properties.principal).toBeDefined()
   })
 })

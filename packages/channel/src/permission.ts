@@ -1,28 +1,24 @@
 /**
- * 谁能让它做什么。
+ * 谁能让它做什么 —— 权限只有一个来源：主人自己写的信任表。
  *
- * 一个字都不多：先看说话的人在这个场所是什么角色，再按规则表从后往前找第一条命中的，
- * 没有命中就是不认。规则表是配置，判定是函数，仅此两样（ADR-0007）。
+ * 平台告诉我们的事实（这个人是群主、那个是管理员）**不是权限**。群主能管住那个群，
+ * 不等于他能指挥这台机器。把「群管理员」直接当授权，等于让任何一个群的群主
+ * 都能让 agent 跑 bash —— 而他们很可能根本不认识主人。
  *
- * 为什么角色按场所算：同一个人在 A 群是管理员，在 B 群什么都不是。
- * 身份跟场所绑定，不跟账号绑定。
+ * 所以：身份表里查得到的人才有角色，查不到的一律是 guest。guest 也能聊天、
+ * 也能让它做只读的活；写动作只属于主人和他亲手放进去的人。
  */
-import type { ActionDescriptor, UnifiedEvent } from './contracts.js'
+import type { ActionDescriptor } from './contracts.js'
 import { toolName } from './capabilities.js'
-import { venueKeyOf } from './contracts.js'
 
-/** 出厂角色只是种子；用户可以加自己的。 */
-export type BuiltinRole = 'owner' | 'trusted' | 'member' | 'guest' | 'autonomous'
+/** 出厂角色只是种子。 */
+export type BuiltinRole = 'owner' | 'trusted' | 'guest' | 'autonomous'
 export type Role = string
 
-/** 一个回合的发起者。三个字段，别的不要。 */
-export interface TurnActor {
-  /** 平台用户 id。 */
-  subject: string
-  /** 查出来的角色，本回合内固定。 */
-  role: Role
-  /** 防跨场所冒用：A 群的身份不能在 B 群用。 */
-  venueId: string
+/** 身份表：只有主人写的才算数。查不到的 subject 落到 guest。 */
+export interface Identity {
+  owners: readonly string[]
+  trusted?: readonly string[]
 }
 
 export interface PermissionRule {
@@ -33,64 +29,55 @@ export interface PermissionRule {
 
 export type PermissionMatrix = Record<Role, PermissionRule[]>
 
-export type VenueKind = 'private' | 'group' | 'channel'
+export interface TurnActor {
+  /** 平台用户 id；`self` 表示它自己决定做的。 */
+  subject: string
+  role: Role
+  venueId: string
+}
 
-/**
- * 把「平台说这个人是谁」翻成「人格认的角色」。
- *
- * 主人是唯一能跨场所的：他在哪个群都是 owner，因为那是人格的拥有者，
- * 不是某个群的头衔。其余一律就地取材 —— 群主与管理员算 trusted，
- * 普通成员算 member，私聊里的陌生人算 guest。
- */
-export function roleOf(
-  actor: { id?: string; role?: string } | undefined,
-  owners: readonly string[],
-  kind: VenueKind,
-): Role {
-  const subject = actor?.id ?? ''
+/** 声明「这次是替谁做的」。没声明就等于没交代，按最窄的算。 */
+export const SELF = 'self'
+
+export function roleOf(subject: string, identity: Identity): Role {
+  if (subject === SELF) return 'autonomous'
   if (subject === '') return 'guest'
-  if (owners.includes(subject)) return 'owner'
-  if (kind === 'private') return 'guest'
-  if (actor?.role === 'owner' || actor?.role === 'admin') return 'trusted'
-  return 'member'
+  if (identity.owners.includes(subject)) return 'owner'
+  if ((identity.trusted ?? []).includes(subject)) return 'trusted'
+  return 'guest'
 }
 
-/** 一条消息的发起者，用来做这一回合的权限判定。 */
-export function turnActorOf(event: UnifiedEvent, owners: readonly string[]): TurnActor {
-  return {
-    subject: event.actor?.id ?? '',
-    role: roleOf(event.actor, owners, event.conversationType),
-    venueId: venueKeyOf(event),
-  }
+/** 从一条消息的发起人算出这一回合的身份。 */
+export function turnActorOf(subject: string, identity: Identity, venueId: string): TurnActor {
+  return { subject: subject === '' ? SELF : subject, role: roleOf(subject, identity), venueId }
 }
 
 /**
- * 出厂矩阵：兜底拒绝，然后按动作风险逐条放开。
+ * 出厂矩阵：兜底拒绝，然后逐条放开。
  *
- * 只读动作谁都能用（本来就能看见）；可逆的写动作只给主人和群里的管理者。
- * 规则按「从后往前」判，所以读起来就是执行顺序。
+ * owner 什么都能用（那是他的机器）；trusted 能用这个场所里的动作（含可逆的写），
+ * 但碰不到主机上的工具；guest 只有只读的场所动作。规则从后往前判，读起来就是执行顺序。
  */
 export function seedMatrix(platform: string, actions: readonly ActionDescriptor[]): PermissionMatrix {
-  const rules = (writes: boolean): PermissionRule[] => [
+  const names = actions.map((action) => ({
+    name: toolName(platform, action),
+    read: action.risk === 'read',
+  }))
+
+  const readOnly: PermissionRule[] = [
     { match: '*', decision: 'deny' },
-    ...actions
-      .filter((action) => action.risk === 'read' || (writes && action.risk === 'write' && action.reversible))
-      .map((action) => ({ match: toolName(platform, action), decision: 'allow' as const })),
+    ...names.filter((item) => item.read).map((item) => ({ match: item.name, decision: 'allow' as const })),
   ]
 
   return {
-    owner: rules(true),
-    trusted: rules(true),
-    member: rules(false),
-    guest: [{ match: '*', decision: 'deny' }],
-    autonomous: rules(false),
+    owner: [{ match: '*', decision: 'allow' }],
+    trusted: [{ match: '*', decision: 'deny' }, ...names.map((item) => ({ match: item.name, decision: 'allow' as const }))],
+    guest: readOnly,
+    autonomous: readOnly,
   }
 }
 
-/**
- * 判定三步里的后两步：从后往前找第一条命中的规则；一条都没命中就是拒绝。
- * 角色不认识（配置里没有）也当拒绝 —— 不认识的比陌生人更危险。
- */
+/** 判定：从后往前找第一条命中的；一条都没命中就是不认。 */
 export function judge(matrix: PermissionMatrix, role: Role, name: string): 'allow' | 'ask' | 'deny' {
   const rules = matrix[role]
   if (rules === undefined) return 'deny'

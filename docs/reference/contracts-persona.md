@@ -111,7 +111,7 @@ interface VenuePresence {
 
 ```ts
 /** 出厂角色只是种子；用户可以加自己的（'vip'、'运营'、'客户'…）、改名、删掉不用的。 */
-export type BuiltinRole = 'owner' | 'trusted' | 'member' | 'guest' | 'autonomous'
+export type BuiltinRole = 'owner' | 'trusted' | 'guest' | 'autonomous'
 export type Role = string
 
 /** 一个回合的发起者。三个字段，别的不要。 */
@@ -130,11 +130,15 @@ export interface PermissionRule {
 export type PermissionMatrix = Record<Role, PermissionRule[]>
 ```
 
+**角色只有一个来源：主人自己写的信任表**（`identity.json` 的 `owners` / `trusted`，其余一律 `guest`）。平台报的角色（群主、管理员）**不参与判定** —— 群主管得着那个群，管不着这台机器，而且主人根本不认识所有群的群主。理由见 [ADR-0011](../adr/0011-trust-table-is-the-only-authority.md)。
+
 判定三步：
 
 1. **从后往前**，第一条命中的规则胜出（后面的覆盖前面的）；
 2. 一条都没命中 → 工具的原生默认（`risk` 的映射，见[判据与默认值](policies.md#风险只提供默认值)）；
 3. 原生默认也没有（门 B 的工具）→ `deny`。
+
+**每次调用都要声明替谁做**：动作目录生成的工具多一个必填参数 `principal`（说话人的用户 id，或 `self` 表示它自己决定）。声明的人必须是**这一轮里真的开过口的人**；对不上就拒绝 —— 模型不能替一个没开口的人做主。
 
 **没有 `decide()` 这个函数。** 它要做的事就是 `tools/pre-execute` 这个钩子要做的事，而那个钩子的返回值本来就是 `allow` / `ask` / `deny`。多起一个名字，就多一份要同步的语义 —— 判定写在监听里，规则表是配置，仅此两样。
 
