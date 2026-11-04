@@ -306,6 +306,11 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const declared = typeof args.principal === 'string' ? args.principal.trim() : ''
 
     const speaking = speakers.get(sessionId) ?? new Map<string, string | undefined>()
+    /** 昵称跟着账号一起给：模型不该自己去对「1964324406 是谁」。 */
+    const named = (id: string): string => {
+      const display = speaking.get(id)
+      return display === undefined || display === '' ? '' : ` name=${display}`
+    }
 
     let subject = ''
     if (declared === SELF) {
@@ -319,7 +324,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     } else if (speaking.size === 1) {
       subject = [...speaking.keys()][0] ?? ''
     } else {
-      const names = [...speaking.keys()].join(',')
+      const names = [...speaking.keys()].map((id) => id + named(id)).join(', ')
       fail('permission', `拒绝 ${name}：本轮发起人缺失或多于一个（${names || '无'}）`)
       return `拒绝：tool=${name} 原因=本轮发起人缺失或多于一个（${names || '无'}）`
     }
@@ -331,7 +336,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const decision = judge(matrix, role, name)
     if (decision === 'allow') return ''
     fail('permission', `拒绝 ${name}：${subject} 是 ${role}（${decision}）`)
-    return `拒绝：tool=${name} principal=${subject} role=${role} 原因=角色不允许`
+    return `拒绝：tool=${name} principal=${subject}${named(subject)} role=${role} 原因=角色不允许`
   }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {

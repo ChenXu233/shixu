@@ -547,6 +547,8 @@ describe('场所 → agent 绑定', () => {
       // 技术文本：工具、发起人、角色、原因，一个不多一个不少。
       expect(reason).toContain('tool=fake_poke')
       expect(reason).toContain('principal=' + stranger)
+      // 昵称跟账号一起给：模型不该自己去对「这个号是谁」。
+      expect(reason).toContain('name=小明')
       expect(reason).toContain('role=guest')
       expect(reason).toContain('原因=角色不允许')
       // 引擎不带语气：没有第一人称、没有劝告。
