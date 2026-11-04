@@ -306,40 +306,32 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const declared = typeof args.principal === 'string' ? args.principal.trim() : ''
 
     const speaking = speakers.get(sessionId) ?? new Map<string, string | undefined>()
-    /** 拒绝的理由说成一件**事**，不是一句错误码：模型要拿它去跟人说话。 */
-    const who = (id: string): string => {
-      const display = speaking.get(id)
-      return display === undefined || display === '' ? `「${id}」` : `「${display}」`
-    }
 
     let subject = ''
     if (declared === SELF) {
       subject = SELF
     } else if (declared !== '') {
       if (!speaking.has(declared)) {
-        fail('permission', `拒绝 ${name}：${declared} 不是这一轮里说话的人`)
-        return `这次不执行。${who(declared)} 这一轮没有说话 —— 我只替真的开了口的人办事。`
+        fail('permission', `拒绝 ${name}：${declared} 不是这一轮的发起人`)
+        return `拒绝：tool=${name} principal=${declared} 原因=不是本轮的发起人`
       }
       subject = declared
     } else if (speaking.size === 1) {
       subject = [...speaking.keys()][0] ?? ''
     } else {
-      const names = [...speaking.keys()].map(who).join('、')
-      fail('permission', `拒绝 ${name}：分不清替谁做（${names || '没有人'}）`)
-      return speaking.size === 0
-        ? '这次不执行：这一轮没有谁开口，我不知道该替谁办。'
-        : `这次不执行：这一轮有 ${names} 在说话，分不清该替谁办。`
+      const names = [...speaking.keys()].join(',')
+      fail('permission', `拒绝 ${name}：本轮发起人缺失或多于一个（${names || '无'}）`)
+      return `拒绝：tool=${name} 原因=本轮发起人缺失或多于一个（${names || '无'}）`
     }
 
     const role = roleOf(subject, trust)
     const matrix = matrices.get(platform)
-    if (matrix === undefined) return '这次不执行：这个场所还没有能做的事。'
+    if (matrix === undefined) return `拒绝：tool=${name} 原因=这个场所没有可用的动作目录`
 
     const decision = judge(matrix, role, name)
     if (decision === 'allow') return ''
     fail('permission', `拒绝 ${name}：${subject} 是 ${role}（${decision}）`)
-    if (subject === SELF) return '这次不执行：这件事不在我自己做主的范围里。'
-    return `这次不执行。想让我做这件事的是${who(subject)}，而这件事我只替信得过的人做。`
+    return `拒绝：tool=${name} principal=${subject} role=${role} 原因=角色不允许`
   }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
