@@ -7,7 +7,7 @@ import { decide } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { Perception } from './perception.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
-import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
+import { venueKeyOf, type ChatSession, type KernelEvent, type MessageSegment, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
 /** Cordis 插件名。 */
@@ -234,6 +234,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const targets = new Map<string, ChatSession>()
   /** 会话 → 这一轮已经说出来的话。一次 turn 只发一条，否则一句话会被拆成好几条。 */
   const pending = new Map<string, string[]>()
+  /** 会话 → 把它叫醒的那条消息。回复要引用它，否则群里不知道在答哪句。 */
+  const triggers = new Map<string, string>()
   /** 已经挂进工作区的会话，一个进程只挂一次。 */
   const attached = new Set<string>()
   /** 已经配好工具与人格段的会话，一个进程只配一次。 */
@@ -468,6 +470,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
         trust = await readIdentity(dir)
 
+        if (event.messageId !== undefined && event.messageId !== '') triggers.set(sessionId, event.messageId)
+
         const message = await toInboundMessage(event, attachments, log, journal)
         // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
         // 所以投递前先把消息 id 记下来，等 user/message 事件到了一查就知道是谁。
@@ -521,7 +525,18 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
       if (text !== '') {
-        void ctx.channels.send(chat, [{ type: 'text', data: { text } }]).catch((error: unknown) => {
+        // 群里回答要引用触发它的那条：一热闹就没人知道它在答哪句。
+        const quote = triggers.get(session.id) ?? ''
+        const canQuote = ctx.channels.getDriver(chat.protocol)?.capabilities.sendQuote === true
+        const segments: MessageSegment[] =
+          canQuote && quote !== '' && chat.conversationType !== 'private'
+            ? [
+                { type: 'quote', data: { messageId: quote } },
+                { type: 'text', data: { text } },
+              ]
+            : [{ type: 'text', data: { text } }]
+
+        void ctx.channels.send(chat, segments).catch((error: unknown) => {
           fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
         })
       }

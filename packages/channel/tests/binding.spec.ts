@@ -342,7 +342,10 @@ describe('场所 → agent 绑定', () => {
     const sent = (driver as any).sent
     expect(sent).toHaveLength(1)
     expect(sent[0].action).toBe('send')
-    expect(sent[0].params.segments).toEqual([{ type: 'text', data: { text: '我查一下\n\n查到了，是 42' } }])
+    // 正文一条；前面那条是引用，指向把它叫醒的消息。
+    const [quote, body] = sent[0].params.segments
+    expect(quote.type).toBe('quote')
+    expect(body).toEqual({ type: 'text', data: { text: '我查一下\n\n查到了，是 42' } })
   })
 
   it('只调工具不说话的一轮，不往群里发空消息', async () => {
@@ -565,6 +568,42 @@ describe('场所 → agent 绑定', () => {
       const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
       await poke.execute({ userId: 'x', principal: stranger })
       expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
+    })
+  })
+
+  /**
+   * 破损类：**群里不知道它在答哪句**。
+   * 用户看到：它回了一句，但十分钟前的对话早就翻篇了，谁也不知道这说的是什么。
+   */
+  describe('引用回复', () => {
+    /** 让这一轮「说完」并把回复投出去。 */
+    async function speak(agents: FakeAgents, id: string): Promise<void> {
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id }, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '好' }] } } })
+      root.emit('session/event', { id }, { type: 'turn/end', data: {} })
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    }
+
+    it('群里回答会引用把它叫醒的那条', async () => {
+      const { driver, agents } = await boot()
+      const event = driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '看看这个' })
+      await tick()
+      await speak(agents, 'shixu-fake:bot:g1')
+
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments[0]).toEqual({ type: 'quote', data: { messageId: event.messageId } })
+      expect(sent.params.segments[1].type).toBe('text')
+    })
+
+    it('私聊不引用：一来一回本来就没有歧义', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'p1', conversationType: 'private', text: '在吗' })
+      await tick()
+      await speak(agents, 'shixu-fake:bot:p1')
+
+      const sent = driver.sent.find((call) => call.action === 'send') as any
+      expect(sent.params.segments).toHaveLength(1)
+      expect(sent.params.segments[0].type).toBe('text')
     })
   })
 

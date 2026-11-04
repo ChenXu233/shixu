@@ -46,9 +46,9 @@ export const capabilities: Capabilities = {
   sendAudio: false,
   sendVideo: false,
   sendFile: false,
-  sendQuote: false,
   sendMention: true,
   sendMentionAll: false,
+  sendQuote: true,
   recall: false,
   maxMessageLength: 4096,
 }
