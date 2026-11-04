@@ -12,7 +12,10 @@
 
 ```text
 $DSH_HOME/persona/<personaId>/
-├── persona.md          人设 / 性格 / 说话风格（重建会话或重启进程时读取）
+├── personality.md      我是谁：身份、性格（重建会话或重启进程时读取）
+├── behavior.md         什么时候说话：怎么观察局面、什么时候安静
+├── reply_style.md      怎么说话：长短、语气、习惯
+├── persona.md          三段都没有时的回落：整段当「我是谁」
 ├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
 ├── memory/
 │   ├── core.json       自我事实（我是谁、我在忙什么）

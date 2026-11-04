@@ -569,6 +569,47 @@ describe('场所 → agent 绑定', () => {
   })
 
   /**
+   * 破损类：**它在群里不存在** —— 不是被点名就是掉线，中间没有第三种状态。
+   */
+  describe('在场：先听见，再决定接不接', () => {
+    it('没 @ 但打了名字也算在叫它', async () => {
+      const { driver, agents } = await boot({ aliasNames: ['时煦'] })
+      driver.simulateInbound({ conversationId: 'g1', text: '时煦，你来看看这个' })
+      await tick()
+
+      expect(agents.created).toHaveLength(1)
+    })
+
+    it('没叫它的消息先记下来，但不叫醒它', async () => {
+      const { driver, agents } = await boot({ aliasNames: ['时煦'] })
+      driver.simulateInbound({ conversationId: 'g1', text: '今天好热' })
+      await tick()
+
+      expect(agents.created).toHaveLength(0)
+      const log = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
+      expect(log).toContain('attention')
+    })
+
+    it('人设三段分别进提示词：我是谁 / 什么时候说话 / 怎么说话', async () => {
+      const dir = join(home, 'persona', 'default')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'personality.md'), '我是时煦。', 'utf8')
+      await writeFile(join(dir, 'behavior.md'), '群里热闹时少说话。', 'utf8')
+      await writeFile(join(dir, 'reply_style.md'), '说话短。', 'utf8')
+
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+      await tick()
+
+      const section = agents.sections.find((one) => one.name === 'shixu:persona')
+      expect(section?.text).toContain('## 我是谁')
+      expect(section?.text).toContain('## 什么时候说话')
+      expect(section?.text).toContain('群里热闹时少说话。')
+      expect(section?.text).toContain('## 怎么说话')
+    })
+  })
+
+  /**
    * 破损类：**发了一张图，人格却只看到「[image]」**。
    * 用户看到：截图问它问题，它答非所问，因为它压根没看见图。
    */

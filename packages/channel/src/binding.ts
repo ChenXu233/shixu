@@ -3,7 +3,9 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
+import { decide } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
+import { Perception } from './perception.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
@@ -252,6 +254,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const subjectsByMessage = new Map<string, Map<string, { subject: string; name?: string }>>()
   /** 会话 → 这一轮里真的开过口的人（id → 显示名）。动作执行时按它判权限。 */
   const speakers = new Map<string, Map<string, string | undefined>>()
+  /** 每个场所听见了什么。没 @ 的消息也进这里，否则谈不上「在场」。 */
+  const perception = new Perception()
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
   const turnDone = new Map<string, () => void>()
 
@@ -407,10 +411,44 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       if (event.type !== 'message') return
       // 自己说的话不叫醒自己：否则它一发出去就收到自己那条，接着回自己。
       if (event.self) return
-      if ((event.text ?? '') === '') return
+
       const venue = venueKeyOf(event)
+      const aliases = readField<string[]>(config.aliasNames) ?? []
+      const mentioned = isMentioned(event)
+      const addressed = isAddressed(event, aliases)
+      const text = event.text ?? ''
+      const images = (event.message ?? []).filter((segment) => segment.type === 'image').length
+
+      // 先记下来，再决定理不理。没 @ 的也要「听见」，否则它对群一无所知。
+      if (text !== '' || images > 0) {
+        perception.observe(venue, {
+          id: event.id,
+          subject: event.actor?.id ?? '',
+          name: event.actor?.name,
+          text,
+          images,
+          at: event.timestamp,
+        })
+      }
+
+      if (text === '') return
       if (!isVenueEnabled(config, venue)) return
-      if (!isAddressed(event)) return
+
+      // 判定先跑影子模式：只记它「会不会接」，不改行为。等日志里能看出分寸了再放开。
+      if (!addressed) {
+        const state = perception.state(venue)
+        const decision = decide({
+          pending: state?.pending.length ?? 1,
+          mentioned,
+          named: aliases.some((alias) => alias !== '' && text.includes(alias)),
+          isPrivate: event.conversationType === 'private',
+          silenceStreak: state?.silenceStreak ?? 0,
+          sinceLastSpokeMs: state === undefined || state.lastSpokeAt === 0 ? 86_400_000 : Date.now() - state.lastSpokeAt,
+        })
+        perception.markJudged(venue, decision.act === 'speak')
+        journal.note('attention', `${venue} ${decision.act} score=${decision.score}｜${decision.reasons.join('，')}`)
+        return
+      }
 
       const sessionId = `shixu-${venue}`
       const chat: ChatSession = {
@@ -437,6 +475,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         subjectsByMessage.set(sessionId, byMessage)
 
         agent.followup(message)
+        perception.markJudged(venue, true)
       })
     })
   })
@@ -527,8 +566,17 @@ function defaultModel(ctx: Context): AgentModel | undefined {
  * 私聊必回；群与频道里只在被 @ 到时开口。一个群里有人聊天不代表在叫它 ——
  * 逐条接话会把它变成噪音源，而噪音源会被踢出去。
  */
-export function isAddressed(event: KernelEvent): boolean {
+export function isAddressed(event: KernelEvent, aliases: readonly string[] = []): boolean {
   if (event.conversationType === 'private') return true
+  if (isMentioned(event)) return true
+  // 没 @ 但打了名字也算在叫它。群里有人聊到同名的人时会被误叫醒，
+  // 所以只在名字是「不怎么出现在日常对话里的词」时才配。
+  const text = event.text ?? ''
+  return aliases.some((alias) => alias !== '' && text.includes(alias))
+}
+
+/** 结构化的 @：段里有 mention，且点的是它自己。 */
+export function isMentioned(event: KernelEvent): boolean {
   const self = event.venue.accountId
   return (event.message ?? []).some((segment) => {
     if (segment.type !== 'mention') return false
@@ -568,13 +616,33 @@ async function readIdentity(dir: string): Promise<Identity> {
   }
 }
 
-/** 人格文本。没有这个文件就是空字符串 —— 人格只是没写自我介绍，不是坏了。 */
+/**
+ * 人设三段：我是谁 / 什么时候说话 / 怎么说话。
+ *
+ * 分开写不是洁癖：混成一段时，想调「别太活跃」就会改到性格上去。三份都是可选的，
+ * 一份都没有才回落到老的单文件 persona.md。
+ */
+const PERSONA_PARTS = [
+  { file: 'personality.md', title: '我是谁' },
+  { file: 'behavior.md', title: '什么时候说话' },
+  { file: 'reply_style.md', title: '怎么说话' },
+]
+
+/** 人格文本。没有这些文件就是空字符串 —— 人格只是没写自我介绍，不是坏了。 */
 async function readPersonaText(dir: string): Promise<string> {
-  try {
-    return (await readFile(join(dir, 'persona.md'), 'utf8')).trim()
-  } catch {
-    return ''
+  const read = async (file: string): Promise<string> => {
+    try {
+      return (await readFile(join(dir, file), 'utf8')).trim()
+    } catch {
+      return ''
+    }
   }
+
+  const parts = await Promise.all(PERSONA_PARTS.map(async (part) => ({ ...part, text: await read(part.file) })))
+  const filled = parts.filter((part) => part.text !== '')
+  if (filled.length > 0) return filled.map((part) => `## ${part.title}\n${part.text}`).join('\n\n')
+
+  return read('persona.md')
 }
 
 /** 模型三件套；provider 或 model 缺一个就不指定，交给部署默认。 */

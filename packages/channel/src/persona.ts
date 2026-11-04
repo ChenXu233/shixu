@@ -20,6 +20,8 @@ import z from '@deepseek-ai/schemastery'
 export const Config = z.object({
   // 人格的标识，同时是数据目录名。一个部署可以有很多人格，现在只有默认那一个。
   personaId: z.string().default('default'),
+  // 别人可能用来叫它的名字。群里没 @、但打了名字，也算在叫它。
+  aliasNames: z.array(z.string()).default([]).volatile(),
   // 模型三件套：留空 = 跟随部署默认（设置页里那个默认模型）。
   provider: z.string().volatile(),
   model: z.string().volatile(),
