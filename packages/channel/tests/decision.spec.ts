@@ -47,6 +47,14 @@ describe('这一批要不要接', () => {
     expect(tired.score).toBeLessThan(fresh.score)
   })
 
+  it('沉默惩罚有上限：连着不说话是常态，不能因此永远闭嘴', () => {
+    const tired = decide({ ...base, pending: 4, silenceStreak: 3 })
+    const exhausted = decide({ ...base, pending: 4, silenceStreak: 99 })
+    expect(exhausted.score).toBe(tired.score)
+    // 攒够热度仍然能开口。
+    expect(decide({ ...base, pending: 12, silenceStreak: 99 }).act).toBe('speak')
+  })
+
   it('很久没在这个场所说过话，分更高（neglectedness）', () => {
     const recent = decide({ ...base, pending: 2, sinceLastSpokeMs: 0 })
     const neglected = decide({ ...base, pending: 2, sinceLastSpokeMs: 600_000 })

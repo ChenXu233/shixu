@@ -41,7 +41,8 @@ export function decide(input: DecisionInput): Decision {
 
   const neglected = Math.min(input.sinceLastSpokeMs / 600_000, 3) // 十分钟封顶
   const heat = input.pending * 0.5
-  const backoff = input.silenceStreak * 0.5
+  // 沉默惩罚有上限：连着不说话是常态，不能因此永远不再开口。
+  const backoff = Math.min(input.silenceStreak, 3) * 0.5
   const score = heat + neglected - backoff
 
   const reasons = [

@@ -443,6 +443,32 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       }
     }
 
+  /**
+   * 攒一小会儿再判：一串短消息是一件事，一条一判等于永远「积压 1 条」。
+   *
+   * 3 秒是手里有数的最小窗口：真人看群也是等一句话说完，不是逐字反应。
+   */
+  const judgeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const scheduleJudge = (venue: string, isPrivate: boolean): void => {
+    const running = judgeTimers.get(venue)
+    if (running !== undefined) clearTimeout(running)
+    const timer = setTimeout(() => {
+      judgeTimers.delete(venue)
+      const state = perception.state(venue)
+      if (state === undefined) return
+      const decision = decide({
+        pending: state.pending.length,
+        mentioned: false,
+        named: false,
+        isPrivate,
+        silenceStreak: state.silenceStreak,
+        sinceLastSpokeMs: state.lastSpokeAt === 0 ? 0 : Date.now() - state.lastSpokeAt,
+      })
+      perception.markJudged(venue, decision.act === 'speak')
+      journal.note('attention', `${venue} ${decision.act} score=${decision.score} 积压=${state.pending.length}｜${decision.reasons.join('，')}`)
+    }, 3_000)
+    judgeTimers.set(venue, timer)
+  }
     scoped.on('channels/event', (event: KernelEvent) => {
       // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。
       if (event.type !== 'message') return
@@ -473,18 +499,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       // 判定先跑影子模式：只记它「会不会接」，不改行为。等日志里能看出分寸了再放开。
       if (!addressed) {
-        const state = perception.state(venue)
-        const decision = decide({
-          pending: state?.pending.length ?? 1,
-          mentioned,
-          named: aliases.some((alias) => alias !== '' && text.includes(alias)),
-          isPrivate: event.conversationType === 'private',
-          silenceStreak: state?.silenceStreak ?? 0,
-          // 从没在这个场所说过话 ≠ 很久没说话。给「从没说过」加分等于一进群就想插嘴。
-          sinceLastSpokeMs: state === undefined || state.lastSpokeAt === 0 ? 0 : Date.now() - state.lastSpokeAt,
-        })
-        perception.markJudged(venue, decision.act === 'speak')
-        journal.note('attention', `${venue} ${decision.act} score=${decision.score}｜${decision.reasons.join('，')}`)
+        // 合成一批再判：一条一判等于永远「积压 1 条」，热度永远攒不起来。
+        scheduleJudge(venue, event.conversationType === 'private')
         return
       }
 
