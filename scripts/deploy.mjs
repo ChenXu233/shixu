@@ -12,7 +12,7 @@
  * 目标也可以走环境变量：DEPLOY_SSH / DEPLOY_CONTAINER / DEPLOY_PROFILE。
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const argv = process.argv.slice(2)
@@ -42,8 +42,8 @@ function local(command, args, options = {}) {
     stdio: options.quiet ? 'pipe' : 'inherit',
     cwd: options.cwd,
     encoding: 'utf8',
-    // Windows 上 pnpm 是 .cmd，不经 shell 起不来。
-    shell: process.platform === 'win32',
+    // 只有 pnpm 需要 shell（Windows 上是 .cmd）；ssh / scp / git 走 shell 会被 cmd 的引号规则改坏参数。
+    shell: options.shell ?? false,
   })
   if (result.status !== 0) {
     if (options.quiet) console.error(result.stdout ?? '', result.stderr ?? '')
@@ -81,33 +81,40 @@ if (opts.dry) {
 
 if (opts.build) {
   console.log('→ 构建')
-  local('pnpm', ['-r', 'build'])
+  local('pnpm', ['-r', 'build'], { shell: process.platform === 'win32' })
 }
 
 console.log('→ 打包')
-const glob = local('node', ['-p', "require('./packages/channel/package.json').name + '-' + require('./packages/channel/package.json').version + '.tgz'"], { quiet: true }).trim()
-local('pnpm', ['pack'], { cwd: join(process.cwd(), 'packages/channel'), quiet: true })
-const packed = join(process.cwd(), 'packages', 'channel', glob)
+const pkg = JSON.parse(readFileSync(join(process.cwd(), 'packages', 'channel', 'package.json'), 'utf8'))
+local('pnpm', ['pack'], { cwd: join(process.cwd(), 'packages', 'channel'), quiet: true, shell: process.platform === 'win32' })
+const packed = join(process.cwd(), 'packages', 'channel', `${pkg.name}-${pkg.version}.tgz`)
 if (!existsSync(packed)) throw new Error(`没找到打包产物：${packed}`)
 
 console.log(`→ 传上去（${tarballName}）`)
-local('scp', ['-q', packed, `${target.ssh}:${remotePath}`])
+// 用 ssh + cat 而不是 scp：别名里带斜杠时 scp 会把它当成两个本地路径。
+const uploaded = spawnSync('ssh', ['-o', 'BatchMode=yes', target.ssh, `cat > ${remotePath}`], { input: readFileSync(packed) })
+if (uploaded.status !== 0) throw new Error(`上传失败：${uploaded.stderr ?? ''}`)
 
 console.log('→ 装进容器')
-const install = [
-  `docker cp ${remotePath} ${target.container}:${remotePath}`,
-  `docker exec ${target.container} dsh plugin --profile ${target.profile} add ${remotePath}`,
-  `docker restart ${target.container} >/dev/null`,
-].join(' && ')
-remote(install)
+remote(
+  [
+    `docker cp ${remotePath} ${target.container}:${remotePath}`,
+    `docker exec ${target.container} dsh plugin --profile ${target.profile} add ${remotePath}`,
+  ].join(' && '),
+)
+
+// 重启前记下时刻：只看这次的日志，别把上一次启动的告警算进来。
+const startedAt = remote('date -u +%Y-%m-%dT%H:%M:%SZ').trim()
+remote(`docker restart ${target.container} >/dev/null`)
 
 console.log('→ 等它起来')
 let url = ''
 let warnings = ''
 for (let attempt = 0; attempt < 30; attempt += 1) {
-  const logs = remote(`docker logs --tail 200 ${target.container} 2>&1`, { quiet: true })
+  const logs = remote(`docker logs --since ${startedAt} ${target.container} 2>&1`, { quiet: true })
   const match = logs.match(/https?:\/\/[^\s]*token=[A-Za-z0-9_-]+/)
-  warnings = (logs.match(/did not activate/g) ?? []).length > 0 ? '有插件没激活，看 logs' : ''
+  const pending = logs.match(/did not activate/g) ?? []
+  warnings = pending.length > 0 ? `${pending.length} 个插件没激活，看 docker logs` : ''
   if (match !== undefined && match !== null && match[0] !== '') {
     url = match[0]
     break
