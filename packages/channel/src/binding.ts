@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
 import { createJournal, type Journal } from './journal.js'
+import { judge, seedMatrix, turnActorOf, type PermissionMatrix, type TurnActor } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
@@ -234,6 +235,14 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   /** 这些贡献挂在别人的作用域上，插件卸载时要自己收回来。 */
   const disposers: Array<() => void> = []
   let persona: Promise<string> | undefined
+  /** 主人名单：唯一能跨场所的身份。读一次缓存住。 */
+  let owners: Promise<string[]> | undefined
+  /** 会话 → 这一回合是谁在说话。动作执行时按它判权限。 */
+  const actors = new Map<string, TurnActor>()
+  /** 平台 → 出厂权限矩阵。动作目录变了才会重算。 */
+  const matrices = new Map<string, PermissionMatrix>()
+  /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
+  const turnDone = new Map<string, () => void>()
 
   ctx.effect(() => () => {
     for (const off of disposers.splice(0)) {
@@ -274,7 +283,20 @@ export function apply(ctx: Context, config: PersonaConfig): void {
      * 都挂在 `agent.ctx` 上 —— 作用域注册只对这一个 agent 可见，
      * 不会串到别的群，也不会污染全局工具表。
      */
-    const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
+    /** 等这一轮说完。没等到就超时放行 —— 卡住一条消息，比永远堵住这个场所强。 */
+  const waitTurnEnd = (sessionId: string, timeoutMs = 120_000): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        turnDone.delete(sessionId)
+        resolve()
+      }, timeoutMs)
+      turnDone.set(sessionId, () => {
+        clearTimeout(timer)
+        resolve()
+      })
+    })
+
+  const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
       if (equipped.has(sessionId)) return
       equipped.add(sessionId)
 
@@ -294,7 +316,15 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       const driver = ctx.channels.getDriver(chat.protocol)
       if (driver === undefined || scope.tools === undefined) return
-      for (const action of exposableActions(driver.actions ?? [])) {
+
+      const actions = exposableActions(driver.actions ?? [])
+      let matrix = matrices.get(chat.venue.platform)
+      if (matrix === undefined) {
+        matrix = seedMatrix(chat.venue.platform, actions)
+        matrices.set(chat.venue.platform, matrix)
+      }
+
+      for (const action of actions) {
         try {
           const off = scope.tools.register({
             ...toolSpec(chat.venue.platform, action),
@@ -305,6 +335,16 @@ export function apply(ctx: Context, config: PersonaConfig): void {
               ],
             },
             async execute(args: Record<string, unknown>) {
+              // 权限在这里判，不在注册时判：一个场所只有一个 agent，工具列表是共用的，
+              // 但「谁在说话」每回合都不一样。注册时拦等于把所有人当成同一个人。
+              const actor = actors.get(sessionId)
+              const role = actor?.role ?? 'guest'
+              const decision = judge(matrix, role, toolSpec(chat.venue.platform, action).name)
+              if (decision !== 'allow') {
+                fail('permission', `${action.name} 被拒：${role}（${decision}）`)
+                throw new Error(`没有权限：这条消息来自「${role}」，${action.name} 不在它的可执行范围内`)
+              }
+
               return JSON.stringify(await driver.call(action.name, args ?? {}))
             },
           })
@@ -339,7 +379,14 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const record = await workspace
         const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
+
+        owners ??= readOwners(dir)
+        actors.set(sessionId, turnActorOf(event, await owners))
+
         agent.followup(await toInboundMessage(event, attachments, log, journal))
+        // 等同场所这一轮说完再投下一条：不然同群里两个人的消息会在一次回合里交错，
+        // 权限判定就分不清是谁在让它动手。
+        await waitTurnEnd(sessionId)
       })
     })
   })
@@ -366,13 +413,22 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       }
 
       if (event.type !== 'turn/end') return
+
       const said = pending.get(session.id) ?? []
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
-      if (text === '') return
-      void ctx.channels.send(chat, [{ type: 'text', data: { text } }]).catch((error: unknown) => {
-        fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
-      })
+      if (text !== '') {
+        void ctx.channels.send(chat, [{ type: 'text', data: { text } }]).catch((error: unknown) => {
+          fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
+        })
+      }
+
+      // 这一轮完了，同场所的下一条消息可以进来了。
+      const done = turnDone.get(session.id)
+      if (done !== undefined) {
+        turnDone.delete(session.id)
+        done()
+      }
     })
     return () => void off?.()
   }, 'channel-binding.replies')
@@ -428,6 +484,17 @@ function resolveAttachments(ctx: Context): AttachmentsLike | undefined {
     return probe.attachments ?? (typeof probe.get === 'function' ? (probe.get('attachments') as AttachmentsLike | undefined) : undefined)
   } catch {
     return undefined
+  }
+}
+
+/** 主人名单。没有这个文件就没人跨场所是主人 —— 群里的管理员仍然是 trusted。 */
+async function readOwners(dir: string): Promise<string[]> {
+  try {
+    const raw = JSON.parse(await readFile(join(dir, 'identity.json'), 'utf8')) as { owners?: unknown }
+    if (!Array.isArray(raw.owners)) return []
+    return raw.owners.filter((id): id is string => typeof id === 'string' && id !== '')
+  } catch {
+    return []
   }
 }
 

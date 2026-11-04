@@ -40,7 +40,7 @@ export interface RawEvent {
   group_id?: number | string
   target_id?: number | string
   operator_id?: number | string
-  sender?: { user_id?: number | string; nickname?: string; card?: string }
+  sender?: { user_id?: number | string; nickname?: string; card?: string; role?: string }
 }
 
 /** 只声明我们真的实现了的。没实现的写 true 会让内核按「支持」去做降级判断。 */
@@ -180,6 +180,12 @@ function toMillis(seconds: unknown): number {
   return Number.isFinite(n) ? n * 1000 : Date.now()
 }
 
+/** 群里发言人的角色。私聊没有这个字段，就不给。 */
+function roleOf(raw: RawEvent): { role?: string } {
+  const role = raw.sender?.role
+  return role === undefined || role === '' ? {} : { role }
+}
+
 /** 群名片优先，其次昵称。都没有就不给字段，别塞空串。 */
 function nameOf(raw: RawEvent): { name?: string } {
   const card = raw.sender?.card
@@ -227,7 +233,7 @@ export function normalize(raw: RawEvent, platform: string): UnifiedEvent | undef
       venue: { platform, accountId, conversationId },
       conversationType,
       timestamp,
-      actor: { id: actorId, ...nameOf(raw) },
+      actor: { id: actorId, ...nameOf(raw), ...roleOf(raw) },
       self: actorId === accountId,
       messageId: String(raw.message_id ?? ''),
       message: segments,

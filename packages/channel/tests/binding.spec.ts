@@ -54,7 +54,11 @@ class FakeAgents extends Service {
     const agent = {
       sessionId: id,
       calls,
-      followup: (message: any) => { calls.push(message) },
+      followup: (message: any) => {
+        calls.push(message)
+        // 真环境下这一轮会走完并发出 turn/end；这里补一个，免得绑定一直等同场所的那一轮。
+        queueMicrotask(() => (this.ctx.root as any).emit('session/event', { id }, { type: 'turn/end', data: {} }))
+      },
       ctx: {
         tools: { register: (definition: any) => { this.tools.push(definition); return () => {} } },
         systemPrompt: { section: (section: any) => { this.sections.push(section); return () => {} } },
@@ -440,7 +444,55 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     expect(agents.sections).toHaveLength(0)
-    expect(agents.tools).toHaveLength(1)
+    expect(agents.tools.map((tool) => tool.name)).toEqual(['fake_echo', 'fake_poke'])
+  })
+
+  /**
+   * 破损类：**群里随便一个人都能让它动手**。
+   * 用户看到：一个普通群友 @ 它说「把某某禁言」，它真的动不了手才对；主人说同一句话要能动。
+   */
+  describe('权限：谁能让它动手', () => {
+    const owner = 'u-owner'
+
+    async function bootWithOwners() {
+      const dir = join(home, 'persona', 'default')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'identity.json'), JSON.stringify({ owners: [owner] }), 'utf8')
+      return boot()
+    }
+
+    it('主人能做可逆的写动作', async () => {
+      const { driver, agents } = await bootWithOwners()
+      driver.simulateInbound({ conversationId: 'g1', userId: owner, mentions: ['bot'], text: '戳他一下' })
+      await tick()
+
+      const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
+      await expect(poke.execute({ userId: 'x' })).resolves.toContain('ok')
+      expect(driver.sent.at(-1)).toEqual({ action: 'poke', params: { userId: 'x' } })
+    })
+
+    it('普通群友做不了写动作，但读的可以', async () => {
+      const { driver, agents } = await bootWithOwners()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-member', mentions: ['bot'], text: '帮我禁言他' })
+      await tick()
+
+      const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
+      await expect(poke.execute({ userId: 'x' })).rejects.toThrow('没有权限')
+
+      const echo = agents.tools.find((tool) => tool.name === 'fake_echo')
+      await expect(echo.execute({ text: 'hi' })).resolves.toContain('ok')
+    })
+
+    it('被拒绝的动作不会打到驱动上', async () => {
+      const { driver, agents } = await bootWithOwners()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-member', mentions: ['bot'], text: '帮我禁言他' })
+      await tick()
+
+      const before = driver.sent.length
+      const poke = agents.tools.find((tool) => tool.name === 'fake_poke')
+      await expect(poke.execute({ userId: 'x' })).rejects.toThrow()
+      expect(driver.sent).toHaveLength(before)
+    })
   })
 
   /**

@@ -13,6 +13,7 @@
 ```text
 $DSH_HOME/persona/<personaId>/
 ├── persona.md          人设 / 性格 / 说话风格（重建会话或重启进程时读取）
+├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
 ├── memory/
 │   ├── core.json       自我事实（我是谁、我在忙什么）
 │   ├── public.json     可对外说的话

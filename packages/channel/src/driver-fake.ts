@@ -77,6 +77,14 @@ export function apply(ctx: Context): void {
         reversible: true,
         scope: 'venue',
       },
+      {
+        name: 'poke',
+        description: '戳一下某人。可逆，但会打扰到人。测试用。',
+        parameters: { userId: { type: 'string', required: true } },
+        risk: 'write',
+        reversible: true,
+        scope: 'venue',
+      },
     ],
     onEvent(next) {
       handler = next

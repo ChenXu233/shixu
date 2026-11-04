@@ -52,6 +52,13 @@ export interface Actor {
   id: string
   /** 显示名。光有 id 的话人格叫不出人名。 */
   name?: string
+  /**
+   * 平台在这一刻给这个人的角色（如 OneBot 的 `owner` / `admin` / `member`）。
+   *
+   * 只在场所里有意义，所以换场所就要重新取 —— A 群的管理员在 B 群什么都不是。
+   * 内核不认识它的字面值，只按场所规则翻译成人格自己的角色。
+   */
+  role?: string
 }
 
 export interface UnifiedEvent {

@@ -35,6 +35,7 @@ export interface VenueRef {
 export interface Actor {
   id: string
   name?: string             // 显示名；光有 id 的话人格叫不出人名
+  role?: string             // 平台在这一刻给的角色（群主/管理员/成员）；只在场所里有意义
 }
 
 export interface UnifiedEvent {
