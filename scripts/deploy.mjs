@@ -12,7 +12,7 @@
  * 目标也可以走环境变量：DEPLOY_SSH / DEPLOY_CONTAINER / DEPLOY_PROFILE。
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const argv = process.argv.slice(2)
@@ -63,8 +63,6 @@ function remote(command, { quiet = false } = {}) {
 }
 
 const hash = local('git', ['rev-parse', '--short', 'HEAD'], { quiet: true }).trim()
-const tarballName = `shixu-channel-${hash}.tgz`
-const remotePath = `/tmp/${tarballName}`
 
 console.log(`→ 目标 ${target.ssh} / ${target.container}（profile ${target.profile}），提交 ${hash}`)
 
@@ -84,23 +82,43 @@ if (opts.build) {
   local('pnpm', ['-r', 'build'], { shell: process.platform === 'win32' })
 }
 
-console.log('→ 打包')
-const pkg = JSON.parse(readFileSync(join(process.cwd(), 'packages', 'channel', 'package.json'), 'utf8'))
-local('pnpm', ['pack'], { cwd: join(process.cwd(), 'packages', 'channel'), quiet: true, shell: process.platform === 'win32' })
-const packed = join(process.cwd(), 'packages', 'channel', `${pkg.name}-${pkg.version}.tgz`)
-if (!existsSync(packed)) throw new Error(`没找到打包产物：${packed}`)
+// 所有带 cordis.patch.yml 的包都是插件，得一起装 —— 只装 channel 会让驱动停在上一版。
+const packagesDir = join(process.cwd(), 'packages')
+const plugins = readdirSync(packagesDir)
+  .filter((name) => existsSync(join(packagesDir, name, 'cordis.patch.yml')))
+  .map((name) => {
+    const dir = join(packagesDir, name)
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    const file = `${pkg.name}-${pkg.version}.tgz`
+    return { name: pkg.name, dir, local: join(dir, file), remote: `/tmp/shixu-${name}-${hash}.tgz` }
+  })
+if (plugins.length === 0) throw new Error('packages/ 下没有找到插件包')
 
-console.log(`→ 传上去（${tarballName}）`)
-// 用 ssh + cat 而不是 scp：别名里带斜杠时 scp 会把它当成两个本地路径。
-const uploaded = spawnSync('ssh', ['-o', 'BatchMode=yes', target.ssh, `cat > ${remotePath}`], { input: readFileSync(packed) })
-if (uploaded.status !== 0) throw new Error(`上传失败：${uploaded.stderr ?? ''}`)
+console.log(`→ 打包（${plugins.map((item) => item.name).join(' + ')}）`)
+for (const item of plugins) {
+  local('pnpm', ['pack'], { cwd: item.dir, quiet: true, shell: process.platform === 'win32' })
+  if (!existsSync(item.local)) throw new Error(`没找到打包产物：${item.local}`)
+}
+
+console.log('→ 传上去')
+for (const item of plugins) {
+  // 用 ssh + cat 而不是 scp：别名里带斜杠时 scp 会把它当成两个本地路径。
+  const uploaded = spawnSync('ssh', ['-o', 'BatchMode=yes', target.ssh, `cat > ${item.remote}`], {
+    input: readFileSync(item.local),
+  })
+  if (uploaded.status !== 0) throw new Error(`上传失败（${item.name}）：${uploaded.stderr ?? ''}`)
+}
 
 console.log('→ 装进容器')
 remote(
-  [
-    `docker cp ${remotePath} ${target.container}:${remotePath}`,
-    `docker exec ${target.container} dsh plugin --profile ${target.profile} add ${remotePath}`,
-  ].join(' && '),
+  plugins
+    .map((item) =>
+      [
+        `docker cp ${item.remote} ${target.container}:${item.remote}`,
+        `docker exec ${target.container} dsh plugin --profile ${target.profile} add ${item.remote}`,
+      ].join(' && '),
+    )
+    .join(' && '),
 )
 
 // 重启前记下时刻：只看这次的日志，别把上一次启动的告警算进来。
@@ -129,4 +147,4 @@ const shown = opts.url !== undefined && token !== undefined ? `${opts.url}?token
 console.log('')
 console.log(shown === '' ? '⚠ 没等到启动地址，去 docker logs 看' : `✅ 已发布：${shown}`)
 if (warnings !== '') console.log(`⚠ ${warnings}`)
-console.log(`   版本包：${tarballName}`)
+console.log(`   版本包：${plugins.map((item) => item.name).join(' / ')} @ ${hash}`)
