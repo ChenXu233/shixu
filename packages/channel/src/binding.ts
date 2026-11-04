@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
+import { createJournal, type Journal } from './journal.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type UnifiedEvent } from './contracts.js'
 import { Config, isVenueEnabled, personaDir, personaRoot, readField, type PersonaConfig } from './persona.js'
 
@@ -120,9 +121,10 @@ export async function toInboundMessage(
   event: KernelEvent,
   attachments: AttachmentsLike | undefined,
   log?: Logger,
+  journal?: Journal,
 ): Promise<UserMessage> {
   const text = renderInbound(event)
-  const images = await inboundImages(event, log)
+  const images = await inboundImages(event, log, journal)
   if (images.length === 0 || attachments === undefined) return toUserMessage(text)
 
   const content = await attachments.admitPromptContent([{ type: 'text', text }, ...images])
@@ -135,7 +137,11 @@ export async function toInboundMessage(
 }
 
 /** 把事件里的图片段取回来；取不到的跳过，顺序保持原样。 */
-async function inboundImages(event: KernelEvent, log?: Logger): Promise<Array<{ type: 'image'; data: string; mediaType: string }>> {
+async function inboundImages(
+  event: KernelEvent,
+  log?: Logger,
+  journal?: Journal,
+): Promise<Array<{ type: 'image'; data: string; mediaType: string }>> {
   const urls = (event.message ?? [])
     .filter((segment) => segment.type === 'image')
     .map((segment) => String((segment.data as { url?: unknown }).url ?? ''))
@@ -147,11 +153,13 @@ async function inboundImages(event: KernelEvent, log?: Logger): Promise<Array<{ 
       const image = await fetchImage(url)
       if (image === undefined) {
         log?.info('图片取不到或不是图片，跳过：%s', url)
+        journal?.note('image', `取不到或不是图片，跳过：${url}`)
         continue
       }
       images.push({ type: 'image', ...image })
     } catch (error) {
       log?.error('图片下载失败：%s', String(error))
+      journal?.note('image', `下载失败：${url} —— ${String(error)}`)
     }
   }
   return images
@@ -201,6 +209,17 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const dir = personaDir(personaRoot(), personaId)
   const title = `时煦-${personaId}`
   const log = ctx.logger('channel-binding')
+  const journal = createJournal(dir)
+  /**
+   * 出错时两处都写：容器日志（能看见最好）和人格目录下的日志文件（一定看得见）。
+   *
+   * DSH 的插件日志不进 `docker logs`，只写第一处等于没写。
+   */
+  const fail = (scope: string, message: string): void => {
+    log.error(message)
+    journal.note(scope, message)
+  }
+  journal.note('boot', `persona=${personaId} cwd=${dir}`)
   const attachments = resolveAttachments(ctx)
   let workspace: Promise<WorkspaceRecordLike | undefined> | undefined
 
@@ -241,7 +260,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const previous = queues.get(venue) ?? Promise.resolve()
       const next = previous.then(task, task).catch((error: unknown) => {
         // 事件不能因为一轮投递失败而静默消失。
-        log.error('venue %s 投递失败：%s', venue, String(error))
+        fail('deliver', `venue ${venue} 投递失败：${String(error)}`)
       })
       queues.set(venue, next)
       void next.then(() => {
@@ -269,7 +288,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
-          log.error('人格提示段注册失败：%s', String(error))
+          fail('equip', `人格提示段注册失败：${String(error)}`)
         }
       }
 
@@ -291,7 +310,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
-          log.error('工具注册失败（%s）：%s', action.name, String(error))
+          fail('equip', `工具注册失败（${action.name}）：${String(error)}`)
         }
       }
     }
@@ -316,11 +335,11 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       targets.set(sessionId, chat)
 
       serialize(venue, async () => {
-        workspace ??= prepareWorkspace(ctx, dir, title, log)
+        workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
         const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
-        agent.followup(await toInboundMessage(event, attachments, log))
+        agent.followup(await toInboundMessage(event, attachments, log, journal))
       })
     })
   })
@@ -352,7 +371,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const text = said.join('\n\n').trim()
       if (text === '') return
       void ctx.channels.send(chat, [{ type: 'text', data: { text } }]).catch((error: unknown) => {
-        log.error('venue %s 回复发送失败：%s', chat.key, String(error))
+        fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
       })
     })
     return () => void off?.()
@@ -441,6 +460,7 @@ async function prepareWorkspace(
   dir: string,
   title: string,
   log: Logger,
+  journal: Journal,
 ): Promise<WorkspaceRecordLike | undefined> {
   await mkdir(dir, { recursive: true })
   const registry = (ctx as unknown as { get(name: string): WorkspaceRegistryLike | undefined }).get('workspaceRegistry')
@@ -454,10 +474,11 @@ async function prepareWorkspace(
       return existing
     }
     await registry.create(canonical, title)
-    log.info('人格工作区：%s', canonical)
+    journal.note('workspace', `登记人格工作区：${canonical}`)
     return registry.list().find((item) => item.path === canonical)
   } catch (error) {
     log.error('人格工作区登记失败：%s', String(error))
+    journal.note('workspace', `人格工作区登记失败：${String(error)}`)
     return undefined
   }
 }

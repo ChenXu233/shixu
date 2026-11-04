@@ -48,7 +48,7 @@
 |---|---|---|
 | 设计 | 已决议，写成文档 | `docs/` |
 | 实现 | `packages/channel`（seam + driver-fake + 身份与权限判定）、`packages/driver-onebot11`（报文换算 + 反向 WS） | `packages/*/src` |
-| 真实协议接入 | 未开始 | 文件树 |
+| 真实协议接入 | OneBot 11（NapCat 反向 WS）已在开发实例上跑通；其余协议未开始 | `packages/driver-onebot11/src` |
 | 契约类型包 | 只冻结了渠道层词汇表，其余未冻结 | [roadmap.md](docs/roadmap.md) |
 
 **不要在本文件或 README 里写进度。** 进度只有一个家：[roadmap.md](docs/roadmap.md)。
@@ -60,6 +60,7 @@ python scripts/check_docs.py          # 文档自检，退出码 0 才算通过
 pnpm test                             # 构建 + 跑全部测试（vitest）
 pnpm run typecheck                    # 逐包类型检查
 npx vitest run <spec> -t <名字>        # 只跑一条
+node scripts/deploy.mjs --ssh <别名> --container <容器> --url <对外地址>   # 构建→打包→装进容器→重启→报地址
 ```
 
 这是唯一一份命令块；其他文档只放指针。

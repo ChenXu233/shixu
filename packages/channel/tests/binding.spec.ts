@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { mkdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -494,6 +494,12 @@ describe('场所 → agent 绑定', () => {
     expect(content).toHaveLength(1)
     expect(content[0].type).toBe('text')
     expect(attachments?.seen).toHaveLength(0)
+
+    // 失败要留现场：人格目录下的日志里得有这条，否则出问题又只能靠猜。
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    const written = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
+    expect(written).toContain('image')
+    expect(written).toContain('never.png')
   })
 })
 
