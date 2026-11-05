@@ -464,7 +464,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         named: false,
         isPrivate,
         silenceStreak: state.silenceStreak,
-        sinceLastSpokeMs: state.lastSpokeAt === 0 ? 0 : Date.now() - state.lastSpokeAt,
+        // 没说过话就从第一次听见它算起 —— 否则在没开过口的群里，这项永远是 0。
+        sinceLastSpokeMs: Math.max(0, Date.now() - (state.lastSpokeAt > 0 ? state.lastSpokeAt : state.firstSeenAt)),
       })
       perception.markJudged(venue, decision.act === 'speak')
       journal.note('attention', `${venue} ${decision.act} score=${decision.score} 积压=${pending}｜${decision.reasons.join('，')}`)

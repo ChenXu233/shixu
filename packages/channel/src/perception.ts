@@ -29,6 +29,8 @@ export interface VenueState {
   silenceStreak: number
   /** 上次在这个场所说话的毫秒时间戳；没说过是 0。 */
   lastSpokeAt: number
+  /** 第一次听见这个场所的时刻。「多久没开口」要有起点，否则永远是 0。 */
+  firstSeenAt: number
 }
 
 /** 一个场所留多少条。够判断「最近在聊什么」，又不至于把内存当记忆用。 */
@@ -40,7 +42,13 @@ export class Perception {
   constructor(private readonly limit: number = RECENT_LIMIT) {}
 
   observe(venue: string, message: Perceived): VenueState {
-    const state = this.venues.get(venue) ?? { pending: [], recent: [], silenceStreak: 0, lastSpokeAt: 0 }
+    const state = this.venues.get(venue) ?? {
+      pending: [],
+      recent: [],
+      silenceStreak: 0,
+      lastSpokeAt: 0,
+      firstSeenAt: message.at,
+    }
     state.pending.push(message)
     state.recent.push(message)
     if (state.recent.length > this.limit) state.recent.splice(0, state.recent.length - this.limit)

@@ -47,6 +47,13 @@ describe('听见了什么', () => {
     expect(state?.lastSpokeAt).toBe(5000)
   })
 
+  it('记下第一次听见它的时刻，之后不被覆盖', () => {
+    const perception = new Perception()
+    perception.observe('v1', message({ id: 'a', at: 1000 }))
+    perception.observe('v1', message({ id: 'b', at: 9000 }))
+    expect(perception.state('v1')?.firstSeenAt).toBe(1000)
+  })
+
   it('缓冲有上限：只留最近的', () => {
     const perception = new Perception(3)
     for (const id of ['a', 'b', 'c', 'd']) perception.observe('v1', message({ id }))
