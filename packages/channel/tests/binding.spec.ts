@@ -483,6 +483,8 @@ describe('场所 → agent 绑定', () => {
       'fake_reply_to',
       'fake_send',
       'remember',
+      'remember_person',
+      'link_account',
     ])
   })
 
@@ -592,6 +594,41 @@ describe('场所 → agent 绑定', () => {
    * 破损类：**群里不知道它在答哪句**。
    * 用户看到：它回了一句，但十分钟前的对话早就翻篇了，谁也不知道这说的是什么。
    */
+  /**
+   * 破损类：**同一个人的小号被当成陌生人** —— 换个号进来，它立刻「你谁啊」。
+   */
+  describe('认人：小号也是同一个人', () => {
+    it('小号进来说话时，它已经知道这是谁', async () => {
+      const dir = join(home, 'persona', 'default', 'memory', 'people')
+      await mkdir(dir, { recursive: true })
+      await writeFile(
+        join(dir, '老王.md'),
+        '# 老王\naccounts: fake:u-main, fake:u-alt\n- 在华理读书\n',
+        'utf8',
+      )
+
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-alt', name: '小号', mentions: ['bot'], text: '在吗' })
+      await tick()
+
+      const said = agents.live.get('shixu-fake:bot:g1')?.calls.at(-1)
+      const content = JSON.stringify(said)
+      expect(content).toContain('老王')
+      expect(content).toContain('在华理读书')
+      // 第二个账号也要标出来，模型才知道这是同一个人。
+      expect(content).toMatch(/第 \d 个账号/)
+    })
+
+    it('陌生人不硬套：没有画像就当普通人', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-unknown', mentions: ['bot'], text: '在吗' })
+      await tick()
+
+      const content = JSON.stringify(agents.live.get('shixu-fake:bot:g1')?.calls.at(-1))
+      expect(content).not.toContain('你记下的')
+    })
+  })
+
   /**
    * 破损类：**它永远在第一天** —— 聊过的事转头就忘，每次都要重新自我介绍。
    */

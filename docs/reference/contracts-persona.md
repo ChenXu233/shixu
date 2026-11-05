@@ -19,6 +19,7 @@ $DSH_HOME/persona/<personaId>/
 ├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
 ├── core.md             它自己的记忆：主人是谁、重要的事（`remember` 工具写，进提示）
 ├── memory/
+│   ├── people/<名字>.md 人物画像：一行 `accounts: qq:123, qq:456` 加若干备注；小号和老号指向同一份
 │   ├── public.json     可对外说的话
 │   ├── private.json    私聊里学到的（默认仅私聊场所可见）
 │   └── venues/<venueId>.json   该场所自己的事实
