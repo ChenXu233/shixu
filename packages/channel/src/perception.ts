@@ -31,6 +31,8 @@ export interface VenueState {
   lastSpokeAt: number
   /** 第一次听见这个场所的时刻。「多久没开口」要有起点，否则永远是 0。 */
   firstSeenAt: number
+  /** 上次「看」这个场所的时刻（判过一次就算看过）。 */
+  lastVisitAt: number
 }
 
 /** 一个场所留多少条。够判断「最近在聊什么」，又不至于把内存当记忆用。 */
@@ -48,6 +50,7 @@ export class Perception {
       silenceStreak: 0,
       lastSpokeAt: 0,
       firstSeenAt: message.at,
+      lastVisitAt: 0,
     }
     state.pending.push(message)
     state.recent.push(message)
@@ -61,11 +64,17 @@ export class Perception {
     return this.venues.get(venue)
   }
 
+  /** 现在挂着哪些场所。安静巡检要挨个看一遍。 */
+  keys(): string[] {
+    return [...this.venues.keys()]
+  }
+
   /** 判过了就把这批清掉：判过的消息不再进入下一次判定。 */
   markJudged(venue: string, acted: boolean, at: number = Date.now()): void {
     const state = this.venues.get(venue)
     if (state === undefined) return
     state.pending = []
+    state.lastVisitAt = at
     if (acted) {
       state.silenceStreak = 0
       state.lastSpokeAt = at

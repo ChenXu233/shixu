@@ -24,6 +24,8 @@ export const Config = z.object({
   aliasNames: z.array(z.string()).default([]).volatile(),
   // 攒多久再判一次「要不要接话」（毫秒）。太短等于一条一判，太长会错过话头。
   judgeWindowMs: z.number().default(3000).volatile(),
+  // 说话多少的总量旋钮：越小越安静，1 = 正常。核心影响两条时间线的长短。
+  talkValue: z.number().default(1).volatile(),
   // 发消息前的基础停顿（毫秒）。0 = 不模拟打字，立刻发。
   typingDelayMs: z.number().default(600).volatile(),
   // 一条回复最多拆成几条发。0 或 1 = 不拆。

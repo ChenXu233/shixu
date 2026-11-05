@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
-import { decide } from './decision.js'
+import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
@@ -445,32 +445,53 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     }
 
   /**
-   * 攒一小会儿再判：一串短消息是一件事，一条一判等于永远「积压 1 条」。
+   * 判一次「要不要去看一眼」。影子模式下只记日志，不叫醒。
    *
-   * 3 秒是手里有数的最小窗口：真人看群也是等一句话说完，不是逐字反应。
+   * 延时是给一串短消息留的合并窗口：真人看群也是等一句话说完，不是逐字反应。
    */
   const judgeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  // 安静巡检：没人说话的时候也要回去看看 —— 人会在群里冒一句「怎么不聊了」。
+  // 只查已经安静够久的场所，否则每五分钟刷一遍日志。
+  const quietTimer = setInterval(() => {
+    const now = Date.now()
+    for (const venue of perception.keys()) {
+      const state = perception.state(venue)
+      if (state === undefined) continue
+      const last = state.recent.at(-1)?.at ?? state.firstSeenAt
+      if (now - last < QUIET_GAP_MS) continue
+      judgeVisit(venue, false)
+    }
+  }, 5 * 60_000)
   const scheduleJudge = (venue: string, isPrivate: boolean): void => {
     const running = judgeTimers.get(venue)
     if (running !== undefined) clearTimeout(running)
     const timer = setTimeout(() => {
       judgeTimers.delete(venue)
-      const state = perception.state(venue)
-      if (state === undefined) return
-      const pending = state.pending.length
-      const decision = decide({
-        pending,
-        mentioned: false,
-        named: false,
-        isPrivate,
-        silenceStreak: state.silenceStreak,
-        // 没说过话就从第一次听见它算起 —— 否则在没开过口的群里，这项永远是 0。
-        sinceLastSpokeMs: Math.max(0, Date.now() - (state.lastSpokeAt > 0 ? state.lastSpokeAt : state.firstSeenAt)),
-      })
-      perception.markJudged(venue, decision.act === 'speak')
-      journal.note('attention', `${venue} ${decision.act} score=${decision.score} 积压=${pending}｜${decision.reasons.join('，')}`)
+      judgeVisit(venue, isPrivate)
     }, readField<number>(config.judgeWindowMs) ?? 3_000)
     judgeTimers.set(venue, timer)
+  }
+
+  /** 同一个判定的收口：事件触发与安静巡检都走这里，日志格式只有一份。 */
+  const judgeVisit = (venue: string, isPrivate: boolean): void => {
+    const state = perception.state(venue)
+    if (state === undefined) return
+    const now = Date.now()
+    const pending = state.pending.length
+    const lastMessageAt = state.recent.at(-1)?.at ?? now
+    const decision = decide({
+      pending,
+      mentioned: false,
+      named: false,
+      isPrivate,
+      sinceLastVisitMs: state.lastVisitAt === 0 ? Number.MAX_SAFE_INTEGER : now - state.lastVisitAt,
+      sinceLastMessageMs: now - lastMessageAt,
+      talkValue: readField<number>(config.talkValue) ?? 1,
+      silenceStreak: state.silenceStreak,
+    })
+    perception.markJudged(venue, decision.act === 'visit')
+    journal.note('attention', `${venue} ${decision.act} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`)
   }
     scoped.on('channels/event', (event: KernelEvent) => {
       // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。

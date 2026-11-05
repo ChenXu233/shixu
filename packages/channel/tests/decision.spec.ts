@@ -1,49 +1,56 @@
 import { describe, expect, it } from 'vitest'
-import { decide } from '../lib/decision.js'
+import { decide, gaps, MIN_GAP_MS, QUIET_GAP_MS } from '../lib/decision.js'
 
 const base = {
   pending: 1,
   mentioned: false,
   named: false,
   isPrivate: false,
+  sinceLastVisitMs: 10 * 60_000,
+  sinceLastMessageMs: 5_000,
+  talkValue: 1,
   silenceStreak: 0,
-  sinceLastSpokeMs: 0,
 }
 
 /**
- * 破损类：**它在不该开口的时候开口**，或者**该接的话一句不接**。
- * 用户看到：群里没人理它，它却自顾自插话；或者聊了半天它像掉线。
+ * 破损类：**该看一眼的时候不去看，或者一直盯着不放**。
+ * 用户看到：群里没人叫它它也不来；或者每隔一分钟冒一次泡。
  */
-describe('这一批要不要接', () => {
-  it('私聊必回', () => {
-    expect(decide({ ...base, isPrivate: true }).act).toBe('speak')
+describe('要不要去看一眼', () => {
+  it('私聊、被 @、被叫名字：马上看', () => {
+    expect(decide({ ...base, isPrivate: true }).act).toBe('visit')
+    expect(decide({ ...base, mentioned: true }).act).toBe('visit')
+    expect(decide({ ...base, named: true }).act).toBe('visit')
   })
 
-  it('被 @ 必回，不看分数', () => {
-    const decision = decide({ ...base, mentioned: true, silenceStreak: 9 })
-    expect(decision.act).toBe('speak')
-    expect(decision.reasons).toContain('被 @')
+  it('刚看过就别盯着', () => {
+    expect(decide({ ...base, pending: 9, sinceLastVisitMs: MIN_GAP_MS - 1 }).act).toBe('silence')
   })
 
-  it('提到名字也回 —— 群里没人会一直 @ 你', () => {
-    expect(decide({ ...base, named: true }).act).toBe('speak')
-  })
-
-  it('没人叫它、也没人提它：默认沉默', () => {
+  it('有人在聊就去看：两条以上', () => {
+    expect(decide({ ...base, pending: 2 }).act).toBe('visit')
     expect(decide({ ...base, pending: 1 }).act).toBe('silence')
   })
 
-  it('沉默惩罚有上限：连着不说话是常态，不能因此永远闭嘴', () => {
-    const tired = decide({ ...base, pending: 4, silenceStreak: 3 })
-    const exhausted = decide({ ...base, pending: 4, silenceStreak: 99 })
-    expect(exhausted.score).toBe(tired.score)
-    // 攒够热度仍然能开口。
-    expect(decide({ ...base, pending: 12, silenceStreak: 99 }).act).toBe('speak')
+  it('安静久了回去看看：没人说话也要醒一次', () => {
+    const quiet = { ...base, pending: 0, sinceLastMessageMs: QUIET_GAP_MS + 1 }
+    const decision = decide(quiet)
+    expect(decision.act).toBe('visit')
+    expect(decision.reasons[0]).toContain('安静')
   })
 
-  it('从没在这个场所说过话，不算「久未开口」', () => {
-    // 否则它一进群就想插嘴：只要来一条没叫它的消息就够分。
-    expect(decide({ ...base, pending: 1, sinceLastSpokeMs: 0 }).act).toBe('silence')
+  it('不吵不静，就不去', () => {
+    expect(decide({ ...base, sinceLastMessageMs: 60_000 }).act).toBe('silence')
   })
 
+  it('话少的人格：安静很久也不急着去', () => {
+    // talkValue 0.3：安静间隔变成三倍多，半小时不够。
+    expect(decide({ ...base, talkValue: 0.3, pending: 0, sinceLastMessageMs: QUIET_GAP_MS + 1 }).act).toBe('silence')
+  })
+
+  it('连着没反应就更慢：别越没反应越勤快', () => {
+    const tired = gaps(1, 5)
+    expect(tired.quietGap).toBeGreaterThan(QUIET_GAP_MS)
+    expect(decide({ ...base, silenceStreak: 5, pending: 0, sinceLastMessageMs: QUIET_GAP_MS + 1 }).act).toBe('silence')
+  })
 })

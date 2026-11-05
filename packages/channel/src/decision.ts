@@ -1,17 +1,17 @@
 /**
- * 这一批消息，要不要接。
+ * 该不该去看一眼这个场所。
  *
- * 默认沉默。这是三条实践来源的共同结论：过度主动会打断别人，过度保守只是像离线；
- * 而「像离线」比「打断别人」便宜得多，所以先从沉默开始，够格才开口。
+ * 注意力不是「消息攒够了才搭理」—— 人是有空就溜一眼，安静久了也会回来看看，
+ * 说一句「怎么不聊了」。所以这里判的是**要不要醒**，不是说哪句话：
+ * 醒了以后说什么、说不说，是它自己的事。
  *
- * 现在用的是规则打分，不是模型判断。选规则的理由不是它更聪明，而是它**不花钱**：
- * 判定发生在每条消息进来时，用模型判定等于给每条群消息都买一次单。等这套跑顺了，
- * 换成一个便宜的判别器，接口不变。
+ * 三个旋钮（照 MaiBot 的做法）：
+ *   talkValue      —— 一个人格说话多少的总量旋钮，0.3 明显话少、1.0 正常
+ *   MIN_GAP / QUIET_GAP —— 两条时间线：刚看过别盯着、安静久了回去看看
+ *   backoff        —— 连着判了几次沉默就更慢一点，别越没反应越勤快
  */
 export interface Decision {
-  act: 'speak' | 'silence'
-  score: number
-  /** 为什么这么判。写进日志，出问题能回溯「它当时怎么想的」。 */
+  act: 'visit' | 'silence'
   reasons: string[]
 }
 
@@ -24,32 +24,40 @@ export interface DecisionInput {
   named: boolean
   /** 私聊。 */
   isPrivate: boolean
+  /** 距上次看这个场所过了多少毫秒。 */
+  sinceLastVisitMs: number
+  /** 距这个场所最后一条消息过了多少毫秒。 */
+  sinceLastMessageMs: number
+  /** 总量旋钮：越小越安静。1 = 正常。 */
+  talkValue: number
   /** 连着判了几次沉默。 */
   silenceStreak: number
-  /** 距上次在这个场所说话过了多少毫秒；没说过按很久算。 */
-  sinceLastSpokeMs: number
 }
 
-/** 开口的门槛。数值的出处是 policies.md，不在代码里另留一份口径。 */
-export const SPEAK_THRESHOLD = 2
+/** 刚看过就别盯着：一分钟内不重复醒（talkValue = 1 时）。 */
+export const MIN_GAP_MS = 60_000
 
-/** 打分：够格才开口。权重都写在一处，调的时候只改这里。 */
+/** 安静这么久，回去看看它在不在（talkValue = 1 时）。 */
+export const QUIET_GAP_MS = 30 * 60_000
+
+/** 沉默得越久，检查得越慢；封顶五次，不然会彻底失联。 */
+const backoffFactor = (silenceStreak: number): number => 1 + Math.min(silenceStreak, 5) * 0.2
+
+/** 把总量旋钮换算成两条时间线。talkValue 越小，间隔越长。 */
+export function gaps(talkValue: number, silenceStreak: number): { minGap: number; quietGap: number } {
+  const scale = 1 / Math.min(Math.max(talkValue, 0.1), 3)
+  const slow = backoffFactor(silenceStreak)
+  return { minGap: MIN_GAP_MS * scale * slow, quietGap: QUIET_GAP_MS * scale * slow }
+}
+
 export function decide(input: DecisionInput): Decision {
-  if (input.isPrivate) return { act: 'speak', score: 10, reasons: ['私聊必回'] }
-  if (input.mentioned) return { act: 'speak', score: 10, reasons: ['被 @'] }
-  if (input.named) return { act: 'speak', score: 8, reasons: ['提到名字'] }
+  if (input.isPrivate) return { act: 'visit', reasons: ['私聊'] }
+  if (input.mentioned) return { act: 'visit', reasons: ['被 @'] }
+  if (input.named) return { act: 'visit', reasons: ['提到名字'] }
 
-  const neglected = Math.min(input.sinceLastSpokeMs / 600_000, 3) // 十分钟封顶
-  const heat = input.pending * 0.5
-  // 沉默惩罚有上限：连着不说话是常态，不能因此永远不再开口。
-  const backoff = Math.min(input.silenceStreak, 3) * 0.5
-  const score = heat + neglected - backoff
-
-  const reasons = [
-    `积压 ${input.pending} 条`,
-    `久未开口 ${Math.round(input.sinceLastSpokeMs / 60_000)} 分钟`,
-    `连续沉默 ${input.silenceStreak} 次`,
-  ]
-
-  return { act: score >= SPEAK_THRESHOLD ? 'speak' : 'silence', score: Math.round(score * 100) / 100, reasons }
+  const { minGap, quietGap } = gaps(input.talkValue, input.silenceStreak)
+  if (input.sinceLastVisitMs < minGap) return { act: 'silence', reasons: ['刚看过'] }
+  if (input.pending >= 2) return { act: 'visit', reasons: [`积压 ${input.pending} 条`] }
+  if (input.sinceLastMessageMs >= quietGap) return { act: 'visit', reasons: ['安静太久了，去看看'] }
+  return { act: 'silence', reasons: ['没什么事'] }
 }
