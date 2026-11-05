@@ -6,6 +6,7 @@ import { fetchImage } from './images.js'
 import { decide } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { Perception } from './perception.js'
+import { splitReply, typingDelay } from './timing.js'
 import { venueTools } from './venue-tools.js'
 import { judge, roleOf, seedMatrix, SELF, type Identity, type PermissionMatrix } from './permission.js'
 import { venueKeyOf, type ChatSession, type KernelEvent, type MessageSegment, type UnifiedEvent } from './contracts.js'
@@ -615,7 +616,20 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
       if (text !== '') {
-        void ctx.channels.send(chat, replySegments(session.id, chat, text)).catch((error: unknown) => {
+        // 像人那样发：先停一下，说一句，再看要不要补一句。
+        const chunks = splitReply(text, readField<number>(config.replyMaxChunks) ?? 3)
+        const base = readField<number>(config.typingDelayMs) ?? 600
+        void (async () => {
+          for (let index = 0; index < chunks.length; index += 1) {
+            const chunk = chunks[index] ?? ''
+            const wait = typingDelay(chunk, base)
+            if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+            // 只有第一条挂引用：后面几条是接着说，不需要每条都指回原消息。
+            const segments: MessageSegment[] =
+              index === 0 ? replySegments(session.id, chat, chunk) : [{ type: 'text', data: { text: chunk } }]
+            await ctx.channels.send(chat, segments)
+          }
+        })().catch((error: unknown) => {
           fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
         })
       }

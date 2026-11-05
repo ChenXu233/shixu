@@ -176,7 +176,8 @@ describe('场所 → agent 绑定', () => {
     await h.use(FakeWorkspaces)
     if (options.defaultModel === true) await h.use(FakeDefaultModel)
     if (options.attachments === true) await h.use(FakeAttachments)
-    await h.use(binding, config)
+    // 测试不等打字延迟，也不拆消息；这两件事单独在 timing.spec 里验。
+    await h.use(binding, { typingDelayMs: 0, replyMaxChunks: 1, ...config })
     return {
       driver: h.app.channels.getDriver('fake')!,
       agents: h.app.get('agents') as FakeAgents,
@@ -580,6 +581,32 @@ describe('场所 → agent 绑定', () => {
    * 破损类：**群里不知道它在答哪句**。
    * 用户看到：它回了一句，但十分钟前的对话早就翻篇了，谁也不知道这说的是什么。
    */
+  /**
+   * 破损类：**一眼是机器人** —— 一问就秒回一大段，或者一条回复拆成八条轰炸。
+   */
+  describe('说话的节奏', () => {
+    it('长回复拆成几条发，短回复不拆', async () => {
+      const { driver, agents } = await boot({ replyMaxChunks: 3 })
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '讲讲' })
+      await tick()
+
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text: '第一句。第二句。第三句。' }] } },
+      })
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/end', data: {} })
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      const sends = driver.sent.filter((call) => call.action === 'send')
+      // 三条句子最多拆成三条，且拼回去是原话。
+      expect(sends.length).toBeGreaterThan(1)
+      expect(sends.length).toBeLessThanOrEqual(3)
+      const joined = sends.map((call: any) => call.params.segments.map((one: any) => one.data.text ?? '').join('')).join('')
+      expect(joined).toBe('第一句。第二句。第三句。')
+    })
+  })
+
   describe('引用回复', () => {
     /** 让这一轮「说完」并把回复投出去。 */
     async function speak(agents: FakeAgents, id: string): Promise<void> {

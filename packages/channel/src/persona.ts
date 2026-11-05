@@ -24,6 +24,10 @@ export const Config = z.object({
   aliasNames: z.array(z.string()).default([]).volatile(),
   // 攒多久再判一次「要不要接话」（毫秒）。太短等于一条一判，太长会错过话头。
   judgeWindowMs: z.number().default(3000).volatile(),
+  // 发消息前的基础停顿（毫秒）。0 = 不模拟打字，立刻发。
+  typingDelayMs: z.number().default(600).volatile(),
+  // 一条回复最多拆成几条发。0 或 1 = 不拆。
+  replyMaxChunks: z.number().default(3).volatile(),
   // 回复要不要引用原消息：`never`（默认）/ `when-older`（答的不是最新那条时）/ `always`。
   // 真人不是每句都引用 —— 这是「像不像人」的一部分，所以交给主人定，不写死在代码里。
   quote: z.string().default('never').volatile(),
