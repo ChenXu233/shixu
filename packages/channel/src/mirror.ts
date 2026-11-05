@@ -60,12 +60,27 @@ export async function exportMemory(memory: Memory, dir: string): Promise<MirrorC
     await writeFile(join(root, 'people', `${safeName(name)}.md`), body + '\n', 'utf8')
   }
 
+  // 情景：一天一行，和段落分开放 —— 段落是刚才，情景是那天。
+  const episodeLines = new Map<string, string[]>()
+  for (const episode of memory.allEpisodes()) {
+    episodeLines.set(episode.venue, [
+      ...(episodeLines.get(episode.venue) ?? []),
+      `- \`${episode.day}\` ${episode.summary}`,
+    ])
+  }
+
   const byVenue = new Map<string, string[]>()
   for (const paragraph of memory.allParagraphs()) {
     byVenue.set(paragraph.venue, [...(byVenue.get(paragraph.venue) ?? []), `- [${stamp(paragraph.toAt)}] ${paragraph.summary}`])
   }
-  for (const [venue, lines] of byVenue) {
-    await writeFile(join(root, 'venues', `${safeName(venue)}.md`), [`# ${venue}`, '', ...lines].join('\n') + '\n', 'utf8')
+  const venues = new Set([...byVenue.keys(), ...episodeLines.keys()])
+  for (const venue of venues) {
+    const body = [
+      `# ${venue}`,
+      ...(episodeLines.has(venue) ? ['', '## 那天', ...episodeLines.get(venue)!] : []),
+      ...(byVenue.has(venue) ? ['', '## 刚才', ...byVenue.get(venue)!] : []),
+    ]
+    await writeFile(join(root, 'venues', `${safeName(venue)}.md`), body.join('\n') + '\n', 'utf8')
   }
 
   return { facts: facts.length, people: people.size, paragraphs: memory.allParagraphs().length }

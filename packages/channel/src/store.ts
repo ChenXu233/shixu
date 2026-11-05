@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS paragraphs (
 );
 CREATE INDEX IF NOT EXISTS paragraphs_venue_at ON paragraphs(venue, to_at);
 
+-- 情景：某个场所某一天发生过什么。一段一段压上去，一天一份。
+CREATE TABLE IF NOT EXISTS episodes (
+  id TEXT PRIMARY KEY,
+  venue TEXT NOT NULL,
+  day TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS episodes_venue_day ON episodes(venue, day);
+
 CREATE TABLE IF NOT EXISTS facts (
   id TEXT PRIMARY KEY,
   about TEXT NOT NULL DEFAULT '',
@@ -240,6 +250,29 @@ export class Memory {
       name: row.name,
       facts: this.recentFacts(row.name, 12).map((one) => one.text),
     }))
+  }
+
+  /** 某天这个场所的情景摘要；没有就是 undefined。 */
+  episodeOf(venue: string, day: string): string | undefined {
+    const row = this.db.prepare('SELECT summary FROM episodes WHERE venue = ? AND day = ?').get(venue, day) as
+      | { summary?: string }
+      | undefined
+    return row?.summary
+  }
+
+  allEpisodes(): Array<{ venue: string; day: string; summary: string }> {
+    return this.db.prepare('SELECT venue, day, summary FROM episodes ORDER BY day ASC').all() as unknown as Array<{
+      venue: string
+      day: string
+      summary: string
+    }>
+  }
+
+  addEpisode(venue: string, day: string, summary: string): void {
+    this.db
+      .prepare('INSERT INTO episodes (id, venue, day, summary, created_at) VALUES (?,?,?,?,?) ON CONFLICT(venue, day) DO UPDATE SET summary = excluded.summary, created_at = excluded.created_at')
+      .run(`ep-${venue}-${day}`, venue, day, summary, Date.now())
+    this.index('episode', `ep-${venue}-${day}`, summary)
   }
 
   recentParagraphs(venue: string, limit = 3): Paragraph[] {

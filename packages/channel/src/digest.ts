@@ -65,6 +65,31 @@ export async function digestVenue(host: DigestHost, venue: string, rows: readonl
   return summary
 }
 
+export function episodePrompt(venue: string, day: string, paragraphs: readonly string[]): string {
+  return [
+    `下面是「${venue}」在 ${day} 这一天聊过的几段摘要。用两三句话写一份当天的情况：发生了什么、聊到了什么、有没有要进一步记住的。`,
+    '只输出这段情况本身，不要客套，不要分条。',
+    '',
+    ...paragraphs.map((one) => `- ${one}`),
+  ].join('\n')
+}
+
+/**
+ * 一天的结尾：把当天的段落再压成一份情景记忆。
+ *
+ * 段落是「刚才聊了什么」，情景是「那天发生了什么」—— 前者给上下文，后者给回忆。
+ */
+export async function rollEpisode(host: DigestHost, venue: string, day: string): Promise<string> {
+  const paragraphs = host.memory.recentParagraphs(venue, 20).map((one) => one.summary)
+  if (paragraphs.length === 0) return ''
+
+  const summary = (await host.ask(episodePrompt(venue, day, paragraphs))).trim()
+  if (summary === '') return ''
+  host.memory.addEpisode(venue, day, summary)
+  host.note(`情景 ${venue} ${day}：${summary.length} 字`)
+  return summary
+}
+
 /** 该刷新的人挨个刷一遍；一轮最多几个，由 store 决定。 */
 export async function refreshProfiles(host: DigestHost, limit = 2): Promise<void> {
   for (const person of host.memory.dueProfiles(limit)) {

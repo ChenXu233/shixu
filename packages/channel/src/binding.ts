@@ -8,7 +8,7 @@ import { Budget } from './budget.js'
 import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
-import { digestVenue, refreshProfiles, type DigestHost } from './digest.js'
+import { digestVenue, refreshProfiles, rollEpisode, type DigestHost } from './digest.js'
 import { exportMemory, importMemory } from './mirror.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
@@ -351,7 +351,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       digestRunning = true
       void (async () => {
         try {
-          await digestVenue(host, venue, rows)
+          const summary = await digestVenue(host, venue, rows)
+          if (summary !== '') await rollEpisode(host, venue, new Date().toISOString().slice(0, 10))
           await refreshProfiles(host)
           // 库变了就同步回 markdown：git 里看到的永远是最新的记忆。
           await exportMemory(host.memory, dir)
