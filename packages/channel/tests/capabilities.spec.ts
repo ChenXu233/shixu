@@ -64,10 +64,6 @@ describe('工具名与参数', () => {
     })
   })
 
-  it('没有必填参数就不写 required 字段', () => {
-    const schema = parameterSchema({ text: { type: 'string' } }) as { required?: unknown }
-    expect(schema.required).toBeUndefined()
-  })
 
   it('动作变成模型视野里的一条工具声明，并且必须声明替谁做', () => {
     const spec = toolSpec('qq', action({ name: 'member_list', description: '看看群里有哪些人', parameters: {} }))

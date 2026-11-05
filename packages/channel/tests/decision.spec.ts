@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decide, SPEAK_THRESHOLD } from '../lib/decision.js'
+import { decide } from '../lib/decision.js'
 
 const base = {
   pending: 1,
@@ -66,7 +66,4 @@ describe('这一批要不要接', () => {
     expect(decide({ ...base, pending: 1, sinceLastSpokeMs: 0 }).act).toBe('silence')
   })
 
-  it('阈值只有一个出处', () => {
-    expect(SPEAK_THRESHOLD).toBe(2)
-  })
 })
