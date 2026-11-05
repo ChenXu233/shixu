@@ -17,8 +17,8 @@ $DSH_HOME/persona/<personaId>/
 ├── reply_style.md      怎么说话：长短、语气、习惯
 ├── persona.md          三段都没有时的回落：整段当「我是谁」
 ├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
+├── core.md             它自己的记忆：主人是谁、重要的事（`remember` 工具写，进提示）
 ├── memory/
-│   ├── core.json       自我事实（我是谁、我在忙什么）
 │   ├── public.json     可对外说的话
 │   ├── private.json    私聊里学到的（默认仅私聊场所可见）
 │   └── venues/<venueId>.json   该场所自己的事实

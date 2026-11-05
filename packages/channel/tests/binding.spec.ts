@@ -71,7 +71,16 @@ class FakeAgents extends Service {
           register: (definition: any) => { this.tools.push(definition); return () => {} },
           guard: (check: any) => { this.guards.push(check); return () => {} },
         },
-        systemPrompt: { section: (section: any) => { this.sections.push(section); return () => {} } },
+        // 和真 API 一样：拿到的 off 调用后这一段就没了，重复注册等于替换。
+        systemPrompt: {
+          section: (section: any) => {
+            this.sections.push(section)
+            return () => {
+              const index = this.sections.indexOf(section)
+              if (index >= 0) this.sections.splice(index, 1)
+            }
+          },
+        },
       },
     }
     this.live.set(id, agent)
@@ -459,12 +468,13 @@ describe('场所 → agent 绑定', () => {
     expect(persona?.interpolate).toBe(false)
   })
 
-  it('没有 persona.md 就不装提示段，人格只是没写自我介绍', async () => {
+  it('没人设文件就不装人设段，但记忆那段一直在', async () => {
     const { driver, agents } = await boot()
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    expect(agents.sections).toHaveLength(0)
+    // 人格只是没写自我介绍；记忆段是它知道自己能记事的地方，不能跟着消失。
+    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:core'])
     expect(agents.tools.map((tool) => tool.name)).toEqual([
       'fake_echo',
       'fake_history',
@@ -472,6 +482,7 @@ describe('场所 → agent 绑定', () => {
       'fake_poke',
       'fake_reply_to',
       'fake_send',
+      'remember',
     ])
   })
 
@@ -581,6 +592,37 @@ describe('场所 → agent 绑定', () => {
    * 破损类：**群里不知道它在答哪句**。
    * 用户看到：它回了一句，但十分钟前的对话早就翻篇了，谁也不知道这说的是什么。
    */
+  /**
+   * 破损类：**它永远在第一天** —— 聊过的事转头就忘，每次都要重新自我介绍。
+   */
+  describe('它自己的记忆', () => {
+    it('记下的事会进下一个会话的提示里', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '记一下：主人叫陈旭' })
+      await tick()
+
+      const remember = agents.tools.find((tool) => tool.name === 'remember')
+      await remember.execute({ text: '主人叫陈旭。', principal: 'u-owner' })
+
+      const section = agents.sections.find((one) => one.name === 'shixu:core')
+      expect(section?.text).toContain('主人叫陈旭。')
+    })
+
+    it('记错了能改，而不是再记一遍', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+      await tick()
+
+      const remember = agents.tools.find((tool) => tool.name === 'remember')
+      await remember.execute({ text: '主人叫陈旭。', principal: 'u-owner' })
+      await remember.execute({ text: '主人叫陈旭，在华理。', replaced: '主人叫陈旭。', principal: 'u-owner' })
+
+      const section = agents.sections.find((one) => one.name === 'shixu:core')
+      expect(section?.text).toContain('主人叫陈旭，在华理。')
+      expect(section?.text).not.toContain('主人叫陈旭。\n')
+    })
+  })
+
   /**
    * 破损类：**它被叫醒就必须说话** —— 安静时被看一眼，也只能硬回一句。
    */

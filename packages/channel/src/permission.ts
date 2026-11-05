@@ -62,6 +62,7 @@ export function seedMatrix(
   platform: string,
   actions: readonly ActionDescriptor[],
   kernel: readonly string[] = [],
+  ownerOnly: readonly string[] = [],
 ): PermissionMatrix {
   const names = actions.map((action) => ({
     name: toolName(platform, action),
@@ -78,6 +79,9 @@ export function seedMatrix(
     ...names.filter((item) => item.read).map((item) => ({ match: item.name, decision: 'allow' as const })),
   ]
 
+  // 只给主人和它自己：记忆会传染，陌生人不能往它脑子里写东西。
+  const mine: PermissionRule[] = ownerOnly.map((name) => ({ match: name, decision: 'allow' as const }))
+
   return {
     owner: [{ match: '*', decision: 'allow' }],
     trusted: [
@@ -86,7 +90,7 @@ export function seedMatrix(
       ...names.map((item) => ({ match: item.name, decision: 'allow' as const })),
     ],
     guest: readOnly,
-    autonomous: readOnly,
+    autonomous: [...readOnly.filter((rule) => rule.match !== '*'), ...mine],
   }
 }
 

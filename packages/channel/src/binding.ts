@@ -1,12 +1,13 @@
 import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { exposableActions, toolSpec } from './capabilities.js'
+import { exposableActions, PRINCIPAL_PARAMETER, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
 import { visitBrief } from './brief.js'
 import { Budget } from './budget.js'
 import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
+import { appendLine, CORE_LIMIT, readCore, replaceLine, writeCore } from './memory.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
 import { venueTools } from './venue-tools.js'
@@ -375,15 +376,48 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         }
       }
 
+      // 它自己的记忆：写进 core.md，读进提示。有记忆它才知道该学什么。
+      const coreSection = (memory: string): string =>
+        memory === ''
+          ? '（你还没有存下任何记忆。遇到以后还想得起来的事，就用 remember 记一笔。）'
+          : '（下面是你自己记下的事。要用 remember 添加，或者用 remember 的 replaced 参数改掉记错的那条。）\n' + memory
+
+      let coreOff: (() => void) | undefined
+      const registerCore = async (): Promise<void> => {
+        if (scope.systemPrompt === undefined) return
+        const memory = await readCore(dir)
+        if (coreOff !== undefined) {
+          coreOff()
+          coreOff = undefined
+        }
+        try {
+          const off = scope.systemPrompt.section({
+            name: 'shixu:core',
+            order: 20,
+            text: coreSection(memory),
+            interpolate: false,
+          })
+          if (typeof off === 'function') {
+            coreOff = off as () => void
+            disposers.push(coreOff)
+          }
+        } catch (error) {
+          fail('equip', `记忆提示段注册失败：${String(error)}`)
+        }
+      }
+      await registerCore()
+
       const driver = ctx.channels.getDriver(chat.protocol)
       if (driver === undefined || scope.tools === undefined) return
 
       const actions = exposableActions(driver.actions ?? [])
-      // history / search 由驱动提供（平台有历史接口）；内核只补「怎么说」的两件。
+      // history / search 由驱动提供（平台有历史接口）；内核补「怎么说」的两件。
+      // remember 不给 guest：记忆会传染，陌生人不能往它脑子里写东西。
       const kernelNames = [`${chat.venue.platform}_reply_to`, `${chat.venue.platform}_send`]
+      const ownerOnly = ['remember']
       let matrix = matrices.get(chat.venue.platform)
       if (matrix === undefined) {
-        matrix = seedMatrix(chat.venue.platform, actions, kernelNames)
+        matrix = seedMatrix(chat.venue.platform, actions, kernelNames, ownerOnly)
         matrices.set(chat.venue.platform, matrix)
       }
 
@@ -439,6 +473,46 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         }
       }
 
+      // remember：它自己决定记什么。写记忆是会传染的，只有主人和它自己能动。
+      if (scope.tools !== undefined) {
+        try {
+          const off = scope.tools.register({
+            name: 'remember',
+            description: '把以后还想得起来的事记进你的记忆。改错的时候用 replaced 指定原文那一行。',
+            parameters: {
+              type: 'object',
+              properties: {
+                text: { type: 'string', description: '要记下的一句话' },
+                replaced: { type: 'string', description: '可选：要改掉的那一行的原文' },
+                principal: PRINCIPAL_PARAMETER,
+              },
+              required: ['text', 'principal'],
+            },
+            output: {
+              schema: { type: 'string' },
+              render: (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }],
+            },
+            async execute(args: Record<string, unknown>) {
+              const line = String(args.text ?? '').trim()
+              if (line === '') throw new Error('text 不能为空')
+              const replaced = String(args.replaced ?? '').trim()
+
+              const current = await readCore(dir)
+              const next = replaced === '' ? appendLine(current, line) : replaceLine(current, replaced, line)
+              if (next.length > CORE_LIMIT) {
+                throw new Error(`记忆满了（${next.length}/${CORE_LIMIT} 字）：先用 replaced 合并掉几条旧的`)
+              }
+              await writeCore(dir, next)
+              await registerCore()
+              journal.note('memory', `${replaced === '' ? '追加' : '改写'}：${line}`)
+              return '记下了'
+            },
+          })
+          if (typeof off === 'function') disposers.push(off as () => void)
+        } catch (error) {
+          fail('equip', `记忆工具注册失败：${String(error)}`)
+        }
+      }
       // 拦在闸门上而不是拦在注册时：一个场所只有一个 agent，工具列表是共用的，
       // 但每一轮是谁在说话都不一样。闸门也顺手管住了主机上的内置工具。
       if (typeof scope.tools.guard === 'function') {

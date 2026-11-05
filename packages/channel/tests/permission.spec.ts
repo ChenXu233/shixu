@@ -74,7 +74,7 @@ describe('角色只来自主人的信任表', () => {
 })
 
 describe('出厂矩阵', () => {
-  const matrix = seedMatrix('qq', ACTIONS, ['qq_history', 'qq_send', 'qq_reply_to'])
+  const matrix = seedMatrix('qq', ACTIONS, ['qq_history', 'qq_send', 'qq_reply_to'], ['remember'])
 
   it('主人什么都能用，包括主机上的工具', () => {
     expect(judge(matrix, 'owner', 'qq_mute')).toBe('allow')
@@ -95,6 +95,13 @@ describe('出厂矩阵', () => {
   it('自己决定做的，只做只读的事', () => {
     expect(judge(matrix, 'autonomous', 'qq_member_list')).toBe('allow')
     expect(judge(matrix, 'autonomous', 'qq_mute')).toBe('deny')
+  })
+
+  it('记忆只有主人和它自己能写：陌生人不能往它脑子里塞东西', () => {
+    expect(judge(matrix, 'owner', 'remember')).toBe('allow')
+    expect(judge(matrix, 'autonomous', 'remember')).toBe('allow')
+    expect(judge(matrix, 'guest', 'remember')).toBe('deny')
+    expect(judge(matrix, 'trusted', 'remember')).toBe('deny')
   })
 
   it('看历史和说话是任何角色的基本能力：连回一句都不行的 guest 不叫 guest', () => {
