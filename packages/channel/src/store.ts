@@ -251,6 +251,20 @@ export class Memory {
     return rows
   }
 
+  allFacts(): Fact[] {
+    return this.db.prepare('SELECT id, about, text, venue, source_message_id AS sourceMessageId, at FROM facts ORDER BY at ASC').all() as unknown as Fact[]
+  }
+
+  allParagraphs(): Paragraph[] {
+    return this.db
+      .prepare('SELECT id, venue, summary, from_at AS fromAt, to_at AS toAt, message_count AS messageCount FROM paragraphs ORDER BY to_at ASC')
+      .all() as unknown as Paragraph[]
+  }
+
+  allProfiles(): Array<{ name: string; profile: string }> {
+    return this.db.prepare("SELECT name, profile FROM entities WHERE profile != ''").all() as unknown as Array<{ name: string; profile: string }>
+  }
+
   recentFacts(about: string, limit = 5): Fact[] {
     return this.db
       .prepare('SELECT * FROM facts WHERE about = ? ORDER BY at DESC LIMIT ?')

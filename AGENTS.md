@@ -49,6 +49,7 @@
 | 设计 | 已决议，写成文档 | `docs/` |
 | 实现 | `packages/channel`（seam + driver-fake + 身份与权限判定）、`packages/driver-onebot11`（报文换算 + 反向 WS） | `packages/*/src` |
 | 真实协议接入 | OneBot 11（NapCat 反向 WS）已在开发实例上跑通；其余协议未开始 | `packages/driver-onebot11/src` |
+| 记忆 | 全局一份 SQLite（消息、事实、段落、画像、实体），`memory/md/` 是 git 可读的正文 | `packages/channel/src/store.ts` · `mirror.ts` |
 | 契约类型包 | 只冻结了渠道层词汇表，其余未冻结 | [roadmap.md](docs/roadmap.md) |
 
 **不要在本文件或 README 里写进度。** 进度只有一个家：[roadmap.md](docs/roadmap.md)。

@@ -9,6 +9,7 @@ import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
 import { digestVenue, refreshProfiles, type DigestHost } from './digest.js'
+import { exportMemory, importMemory } from './mirror.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
@@ -306,6 +307,25 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     // 摘要会话：压段落、写画像都走它，不占场所的上下文。
     let digestRunning = false
 
+    /**
+     * 开张第一件事：库空了就从 markdown 恢复。
+     *
+     * 库是索引，markdown 才是正文 —— 换机器、回退版本，clone 下来这里自己会长回来。
+     */
+    const restoreMemory = async (): Promise<void> => {
+      memory ??= new Memory(memoryPath(dir))
+      if (memory.allFacts().length > 0) return
+      try {
+        const count = await importMemory(memory, dir)
+        if (count.facts > 0 || count.paragraphs > 0) {
+          journal.note('memory', `从文本恢复：${count.facts} 条事实、${count.people} 个人、${count.paragraphs} 段摘要`)
+        }
+      } catch (error) {
+        journal.note('memory', `从文本恢复失败：${String(error)}`)
+      }
+    }
+    void restoreMemory()
+
     const askDigest = async (prompt: string): Promise<string> => {
       workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
       const record = await workspace
@@ -333,6 +353,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         try {
           await digestVenue(host, venue, rows)
           await refreshProfiles(host)
+          // 库变了就同步回 markdown：git 里看到的永远是最新的记忆。
+          await exportMemory(host.memory, dir)
         } catch (error) {
           journal.note('memory', `压段落失败：${String(error)}`)
         } finally {

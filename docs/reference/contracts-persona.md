@@ -18,7 +18,8 @@ $DSH_HOME/persona/<personaId>/
 ├── persona.md          三段都没有时的回落：整段当「我是谁」
 ├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
 ├── core.md             手写记忆：关于它自己和主人（人编辑，直接进提示）
-├── memory/memory.db    记忆库（SQLite，全局一份）：messages / facts / entities / relations / profiles + FTS5 全文索引
+├── memory/memory.db    记忆库（SQLite，全局一份）：messages / facts / paragraphs / entities / relations / profiles + FTS5 全文索引
+├── memory/md/          记忆的正文（git 可读可 diff）：facts.md、people/<名字>.md、venues/<场所>.md
 │   ├── public.json     可对外说的话
 │   ├── private.json    私聊里学到的（默认仅私聊场所可见）
 │   └── venues/<venueId>.json   该场所自己的事实
