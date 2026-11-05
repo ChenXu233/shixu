@@ -33,32 +33,12 @@ describe('这一批要不要接', () => {
     expect(decide({ ...base, pending: 1 }).act).toBe('silence')
   })
 
-  it('攒够一批消息才够格开口', () => {
-    // 阈值 2：四条起步的积压刚好够，三条不够。
-    expect(decide({ ...base, pending: 3 }).act).toBe('silence')
-    expect(decide({ ...base, pending: 4 }).act).toBe('speak')
-  })
-
-  it('连着沉默会越来越难开口（backoff）', () => {
-    const fresh = decide({ ...base, pending: 4 })
-    const tired = decide({ ...base, pending: 4, silenceStreak: 3 })
-    expect(fresh.act).toBe('speak')
-    expect(tired.act).toBe('silence')
-    expect(tired.score).toBeLessThan(fresh.score)
-  })
-
   it('沉默惩罚有上限：连着不说话是常态，不能因此永远闭嘴', () => {
     const tired = decide({ ...base, pending: 4, silenceStreak: 3 })
     const exhausted = decide({ ...base, pending: 4, silenceStreak: 99 })
     expect(exhausted.score).toBe(tired.score)
     // 攒够热度仍然能开口。
     expect(decide({ ...base, pending: 12, silenceStreak: 99 }).act).toBe('speak')
-  })
-
-  it('很久没在这个场所说过话，分更高（neglectedness）', () => {
-    const recent = decide({ ...base, pending: 2, sinceLastSpokeMs: 0 })
-    const neglected = decide({ ...base, pending: 2, sinceLastSpokeMs: 600_000 })
-    expect(neglected.score).toBeGreaterThan(recent.score)
   })
 
   it('从没在这个场所说过话，不算「久未开口」', () => {

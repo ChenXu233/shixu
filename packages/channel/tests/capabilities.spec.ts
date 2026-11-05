@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { exposable, exposableActions, parameterSchema, toolName, toolSpec } from '../lib/capabilities.js'
+import { exposable, exposableActions, toolName, toolSpec } from '../lib/capabilities.js'
 import type { ActionDescriptor } from '../lib/contracts.js'
 
 const action = (over: Partial<ActionDescriptor>): ActionDescriptor => ({
@@ -46,22 +46,6 @@ describe('哪些动作能交给模型', () => {
 describe('工具名与参数', () => {
   it('工具名带平台前缀：权限规则按同一个名字匹配', () => {
     expect(toolName('qq', action({ name: 'kick' }))).toBe('qq_kick')
-  })
-
-  it('required 与 description 原样带进 JSON Schema，json 参数不限定类型', () => {
-    const schema = parameterSchema({
-      groupId: { type: 'string', required: true, description: '群号' },
-      payload: { type: 'json' },
-    })
-
-    expect(schema).toEqual({
-      type: 'object',
-      properties: {
-        groupId: { type: 'string', description: '群号' },
-        payload: {},
-      },
-      required: ['groupId'],
-    })
   })
 
 

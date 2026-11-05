@@ -53,10 +53,4 @@ describe('听见了什么', () => {
     expect(perception.state('v1')?.recent.map((one) => one.id)).toEqual(['b', 'c', 'd'])
   })
 
-  it('摘要给人看：谁说了什么，图片占位', () => {
-    const perception = new Perception()
-    perception.observe('v1', message({ id: 'a', name: '小明', text: '看看这个', images: 1 }))
-    perception.observe('v1', message({ id: 'b', name: undefined, subject: 'u2', text: '' , images: 1 }))
-    expect(perception.digest('v1')).toBe('小明：看看这个\nu2：[图片]')
-  })
 })

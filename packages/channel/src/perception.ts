@@ -66,17 +66,4 @@ export class Perception {
     }
   }
 
-  /** 给人看的最近几句：「小明：在吗」这样。 */
-  digest(venue: string, count = 8): string {
-    const state = this.venues.get(venue)
-    if (state === undefined) return ''
-    return state.recent
-      .slice(-count)
-      .map((message) => {
-        const who = message.name === undefined || message.name === '' ? message.subject : message.name
-        const body = message.text === '' ? (message.images > 0 ? '[图片]' : '[空消息]') : message.text
-        return `${who}：${body}`
-      })
-      .join('\n')
-  }
 }

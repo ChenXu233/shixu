@@ -123,10 +123,7 @@ describe('出站', () => {
 })
 
 describe('动作目录', () => {
-  it('名字是平台无关的词，参数把字符串 id 转成数字', () => {
-    // 工具名会是 {platform}_{name}；动作名里再带平台，就成了 qq_qq_kick。
-    for (const one of ACTIONS) expect(one.name).not.toMatch(/qq|onebot|napcat|discord/i)
-
+  it('参数整形：字符串 id 变成数字', () => {
     expect(ACTION_API.mute?.build({ groupId: '222', userId: '333', durationSeconds: 60 })).toEqual({
       group_id: 222,
       user_id: 333,

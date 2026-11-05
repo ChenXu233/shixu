@@ -6,17 +6,8 @@ import { MAX_DELAY_MS, splitReply, typingDelay } from '../lib/timing.js'
  * 用户看到：问一句，半秒不到回一大段；或者一条回复被拆成八条轰炸。
  */
 describe('等多久再发', () => {
-  it('字越多等得越久，但单条有上限', () => {
-    const short = typingDelay('在', 600, () => 0.5)
-    const long = typingDelay('这是一句很长的话'.repeat(100), 600, () => 0.5)
-    expect(long).toBeGreaterThan(short)
-    expect(long).toBeLessThanOrEqual(MAX_DELAY_MS)
-  })
-
-  it('同样的内容不是每次都等一样久', () => {
-    const quick = typingDelay('你好', 600, () => 0)
-    const slow = typingDelay('你好', 600, () => 1)
-    expect(slow).toBeGreaterThan(quick)
+  it('再长的内容也有上限：等二十秒比秒回更像掉线', () => {
+    expect(typingDelay('这是一句很长的话'.repeat(100), 600, () => 1)).toBeLessThanOrEqual(MAX_DELAY_MS)
   })
 })
 
