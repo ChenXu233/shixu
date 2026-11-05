@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { exposableActions, toolSpec } from './capabilities.js'
 import { fetchImage } from './images.js'
+import { visitBrief } from './brief.js'
+import { Budget } from './budget.js'
 import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { Perception } from './perception.js'
@@ -262,6 +264,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const speakers = new Map<string, Map<string, string | undefined>>()
   /** 每个场所听见了什么。没 @ 的消息也进这里，否则谈不上「在场」。 */
   const perception = new Perception()
+  /** 场所键 → 会话信息。巡检醒来时要用它算出往哪发。 */
+  const chats = new Map<string, ChatSession>()
+  /** 预算：同时看几个、一分钟说几句。 */
+  const budget = new Budget(readField<number>(config.maxConcurrent) ?? 3, readField<number>(config.maxPerMinute) ?? 8)
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
   const turnDone = new Map<string, () => void>()
 
@@ -490,8 +496,47 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       talkValue: readField<number>(config.talkValue) ?? 1,
       silenceStreak: state.silenceStreak,
     })
-    perception.markJudged(venue, decision.act === 'visit')
-    journal.note('attention', `${venue} ${decision.act} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`)
+    const liveMode = (readField<string>(config.attention) ?? 'shadow') === 'live'
+    journal.note(
+      'attention',
+      `${venue} ${decision.act}${liveMode ? '' : '(影子)'} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`,
+    )
+    if (decision.act === 'visit' && liveMode) wake(venue, state)
+    else perception.markJudged(venue, decision.act === 'visit')
+  }
+
+  /** 醒过来：把它看到的最近几条交过去，说不说由它决定。 */
+  const wake = (venue: string, state: { recent: Array<{ id: string; name?: string; subject: string; text: string; images: number; at: number }> }): void => {
+    const chat = chats.get(venue)
+    if (chat === undefined) return
+    if (!budget.tryEnter(venue)) {
+      journal.note('attention', `${venue} 跳过：并发已满（${budget.size()}）`)
+      perception.markJudged(venue, false)
+      return
+    }
+
+    const last = state.recent.at(-1)?.at ?? Date.now()
+    const text = visitBrief({
+      venueLabel: `${chat.venue.platform} ${chat.venue.conversationId}`,
+      quietForMs: Date.now() - last,
+      messages: state.recent.slice(-8),
+    })
+    const sessionId = `shixu-${venue}`
+    targets.set(sessionId, chat)
+
+    serialize(venue, async () => {
+      try {
+        workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
+        const record = await workspace
+        const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        await equip(sessionId, agent, chat)
+        trust = await readIdentity(dir)
+        agent.followup(toUserMessage(text))
+        perception.markJudged(venue, true)
+      } finally {
+        budget.leave(venue)
+      }
+    })
   }
     scoped.on('channels/event', (event: KernelEvent) => {
       // 只有「有人说话」才唤醒人格。成员变化是别的消费者的事（在场感、记忆）。
@@ -508,6 +553,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       // 先记下来，再决定理不理。没 @ 的也要「听见」，否则它对群一无所知。
       if (text !== '' || images > 0) {
+        chats.set(venue, {
+          key: venue,
+          venue: event.venue,
+          protocol: event.protocol,
+          conversationType: event.conversationType,
+        })
         perception.observe(venue, {
           id: event.id,
           subject: event.actor?.id ?? '',
@@ -637,7 +688,20 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const said = pending.get(session.id) ?? []
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
+      // 它选择不说话：醒是醒了，看看就走。这是正常反应，不是失败。
+      const quiet = text.trim()
+      if (quiet === '-' || quiet === '－' || quiet === '——') {
+        journal.note('attention', `${chat.key} 看过，没说话`)
+        return
+      }
+
       if (text !== '') {
+        if (!budget.allowSpeak()) {
+          journal.note('attention', `${chat.key} 跳过发送：这一分钟说得够多了`)
+          return
+        }
+        budget.noteSpoke()
+
         // 像人那样发：先停一下，说一句，再看要不要补一句。
         const chunks = splitReply(text, readField<number>(config.replyMaxChunks) ?? 3)
         const base = readField<number>(config.typingDelayMs) ?? 600

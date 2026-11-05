@@ -26,6 +26,11 @@ export const Config = z.object({
   judgeWindowMs: z.number().default(3000).volatile(),
   // 说话多少的总量旋钮：越小越安静，1 = 正常。核心影响两条时间线的长短。
   talkValue: z.number().default(1).volatile(),
+  // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
+  attention: z.string().default('shadow').volatile(),
+  // 同时最多看几个场所；每分钟总共最多说几句。
+  maxConcurrent: z.number().default(3).volatile(),
+  maxPerMinute: z.number().default(8).volatile(),
   // 发消息前的基础停顿（毫秒）。0 = 不模拟打字，立刻发。
   typingDelayMs: z.number().default(600).volatile(),
   // 一条回复最多拆成几条发。0 或 1 = 不拆。

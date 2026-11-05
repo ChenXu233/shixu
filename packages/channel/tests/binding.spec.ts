@@ -582,6 +582,27 @@ describe('场所 → agent 绑定', () => {
    * 用户看到：它回了一句，但十分钟前的对话早就翻篇了，谁也不知道这说的是什么。
    */
   /**
+   * 破损类：**它被叫醒就必须说话** —— 安静时被看一眼，也只能硬回一句。
+   */
+  describe('它可以不说话', () => {
+    it('回一个 - 就是「看过，不说」：不发任何消息', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '在吗' })
+      await tick()
+
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text: '-' }] } },
+      })
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/end', data: {} })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+
+      expect(driver.sent.filter((call) => call.action === 'send')).toHaveLength(0)
+    })
+  })
+
+  /**
    * 破损类：**一眼是机器人** —— 一问就秒回一大段，或者一条回复拆成八条轰炸。
    */
   describe('说话的节奏', () => {
