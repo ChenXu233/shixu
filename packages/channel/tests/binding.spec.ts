@@ -484,7 +484,7 @@ describe('场所 → agent 绑定', () => {
       'fake_send',
       'remember',
       'remember_person',
-      'link_account',
+      'memory_search',
     ])
   })
 
@@ -598,30 +598,26 @@ describe('场所 → agent 绑定', () => {
    * 破损类：**同一个人的小号被当成陌生人** —— 换个号进来，它立刻「你谁啊」。
    */
   describe('认人：小号也是同一个人', () => {
-    it('小号进来说话时，它已经知道这是谁', async () => {
-      const dir = join(home, 'persona', 'default', 'memory', 'people')
-      await mkdir(dir, { recursive: true })
-      await writeFile(
-        join(dir, '老王.md'),
-        '# 老王\naccounts: fake:u-main, fake:u-alt\n- 在华理读书\n',
-        'utf8',
-      )
-
+    it('记过某人之后，他换账号说话时它先想起他', async () => {
       const { driver, agents } = await boot()
-      driver.simulateInbound({ conversationId: 'g1', userId: 'u-alt', name: '小号', mentions: ['bot'], text: '在吗' })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-main', name: '老王', mentions: ['bot'], text: '在吗' })
       await tick()
 
-      const said = agents.live.get('shixu-fake:bot:g1')?.calls.at(-1)
-      const content = JSON.stringify(said)
+      const rememberPerson = agents.tools.find((tool) => tool.name === 'remember_person')
+      await rememberPerson.execute({ person: '老王', text: '在华理读书', principal: 'u-owner' })
+
+      // 换个账号进来（同一个名字）：模型看到的是关于这个名字的记忆，而不是「你谁啊」。
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-alt', name: '老王', mentions: ['bot'], text: '我换号了' })
+      await tick()
+
+      const content = JSON.stringify(agents.live.get('shixu-fake:bot:g1')?.calls.at(-1))
       expect(content).toContain('老王')
       expect(content).toContain('在华理读书')
-      // 第二个账号也要标出来，模型才知道这是同一个人。
-      expect(content).toMatch(/第 \d 个账号/)
     })
 
-    it('陌生人不硬套：没有画像就当普通人', async () => {
+    it('陌生人不硬套：没有记忆就当普通人', async () => {
       const { driver, agents } = await boot()
-      driver.simulateInbound({ conversationId: 'g1', userId: 'u-unknown', mentions: ['bot'], text: '在吗' })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-unknown', name: '路人', mentions: ['bot'], text: '在吗' })
       await tick()
 
       const content = JSON.stringify(agents.live.get('shixu-fake:bot:g1')?.calls.at(-1))
@@ -633,30 +629,34 @@ describe('场所 → agent 绑定', () => {
    * 破损类：**它永远在第一天** —— 聊过的事转头就忘，每次都要重新自我介绍。
    */
   describe('它自己的记忆', () => {
-    it('记下的事会进下一个会话的提示里', async () => {
+    it('记下的事以后查得到', async () => {
       const { driver, agents } = await boot()
       driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '记一下：主人叫陈旭' })
       await tick()
 
       const remember = agents.tools.find((tool) => tool.name === 'remember')
-      await remember.execute({ text: '主人叫陈旭。', principal: 'u-owner' })
+      await remember.execute({ text: '主人叫陈旭', principal: 'u-owner' })
 
-      const section = agents.sections.find((one) => one.name === 'shixu:core')
-      expect(section?.text).toContain('主人叫陈旭。')
+      const search = agents.tools.find((tool) => tool.name === 'memory_search')
+      const found = await search.execute({ query: '陈旭', principal: 'u-owner' })
+      expect(found).toContain('主人叫陈旭')
     })
 
-    it('记错了能改，而不是再记一遍', async () => {
+    it('一个群里记的事，在另一个群也查得到', async () => {
       const { driver, agents } = await boot()
-      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '记一下' })
+      await tick()
+      driver.simulateInbound({ conversationId: 'g2', mentions: ['bot'], text: '还记得吗' })
       await tick()
 
       const remember = agents.tools.find((tool) => tool.name === 'remember')
-      await remember.execute({ text: '主人叫陈旭。', principal: 'u-owner' })
-      await remember.execute({ text: '主人叫陈旭，在华理。', replaced: '主人叫陈旭。', principal: 'u-owner' })
+      await remember.execute({ text: '老王养了只猫叫咪咪', principal: 'u-owner' })
 
-      const section = agents.sections.find((one) => one.name === 'shixu:core')
-      expect(section?.text).toContain('主人叫陈旭，在华理。')
-      expect(section?.text).not.toContain('主人叫陈旭。\n')
+      // 换到 g2 的 agent 上查：全局一份，不该按群隔离。
+      const other = agents.live.get('shixu-fake:bot:g2')
+      const search = other?.tools?.find((tool: any) => tool.name === 'memory_search') ?? agents.tools.find((tool) => tool.name === 'memory_search')
+      const found = await search.execute({ query: '咪咪', principal: 'u-owner' })
+      expect(found).toContain('咪咪')
     })
   })
 

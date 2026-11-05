@@ -7,8 +7,8 @@ import { visitBrief } from './brief.js'
 import { Budget } from './budget.js'
 import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
-import { appendLine, CORE_LIMIT, readCore, replaceLine, writeCore } from './memory.js'
-import { accountKey, addAccount, addNote, readPeople, writePerson, type Person } from './people.js'
+import { readCore } from './memory.js'
+import { Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
 import { venueTools } from './venue-tools.js'
@@ -268,14 +268,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const perception = new Perception()
   /** 场所键 → 会话信息。巡检醒来时要用它算出往哪发。 */
   const chats = new Map<string, ChatSession>()
-  /** 它认识的人：账号 → 画像。小号和老号指向同一个人。 */
-  let people = { byAccount: new Map<string, Person>(), byName: new Map<string, Person>() }
+  /** 全局记忆：一个库，所有场所共用。 */
+  let memory: Memory | undefined
   /** 预算：同时看几个、一分钟说几句。 */
   const budget = new Budget(readField<number>(config.maxConcurrent) ?? 3, readField<number>(config.maxPerMinute) ?? 8)
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
   const turnDone = new Map<string, () => void>()
 
   ctx.effect(() => () => {
+    // 库是独占的文件句柄：不关掉，重载之后旧库打不开新连接。
+    try {
+      memory?.close()
+    } catch {
+      /* 已经关了 */
+    }
+    memory = undefined
     for (const off of disposers.splice(0)) {
       try {
         off()
@@ -476,20 +483,16 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         }
       }
 
-      // 三个记忆工具：自己的事、别人的事、把某个账号认成同一个人。
-      const reloadPeople = async (): Promise<void> => {
-        people = await readPeople(dir)
-      }
-
+      // 记忆工具：写事实、查记忆。数据全在库里，不分散在文件。
       const memoryToolDefs = [
         {
           name: 'remember',
-          description: '把以后还想得起来的事记进你自己的记忆（关于你自己和主人的）。改错时用 replaced 指定原文那一行。',
+          description: '把关于你自己或主人的事记进长期记忆（一句话一条）。以后任何时候都能用 memory_search 查回来。',
           parameters: {
             type: 'object',
             properties: {
-              text: { type: 'string', description: '要记下的一句话' },
-              replaced: { type: 'string', description: '可选：要改掉的那一行的原文' },
+              text: { type: 'string', description: '一句话' },
+              about: { type: 'string', description: '可选：关于谁；不填就是关于你自己' },
               principal: PRINCIPAL_PARAMETER,
             },
             required: ['text', 'principal'],
@@ -497,24 +500,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           async run(args: Record<string, unknown>) {
             const line = String(args.text ?? '').trim()
             if (line === '') throw new Error('text 不能为空')
-            const replaced = String(args.replaced ?? '').trim()
-            const current = await readCore(dir)
-            const next = replaced === '' ? appendLine(current, line) : replaceLine(current, replaced, line)
-            if (next.length > CORE_LIMIT) throw new Error(`记忆满了（${next.length}/${CORE_LIMIT} 字）：先用 replaced 合并掉几条旧的`)
-            await writeCore(dir, next)
-            await registerCore()
-            journal.note('memory', `自己：${replaced === '' ? '追加' : '改写'} ${line}`)
+            const about = String(args.about ?? '').trim()
+            memory ??= new Memory(memoryPath(dir))
+            memory.addFact({ about, text: line, at: Date.now() })
+            journal.note('memory', `事实：${about === '' ? '自己' : about} — ${line}`)
             return '记下了'
           },
         },
         {
           name: 'remember_person',
-          description: '把某个人说过的事记到他的画像里（他是谁、喜欢什么、最近在忙什么）。聊到谁就用谁的名字。',
+          description: '记一条关于某个人的事（他是谁、喜欢什么、最近在忙什么）。同一个人换个账号来说话，也记在同一个名字下。',
           parameters: {
             type: 'object',
             properties: {
-              person: { type: 'string', description: '这个人的名字（画像名）' },
-              text: { type: 'string', description: '要记下的一句话' },
+              person: { type: 'string', description: '这个人的名字' },
+              text: { type: 'string', description: '一句话' },
               principal: PRINCIPAL_PARAMETER,
             },
             required: ['person', 'text', 'principal'],
@@ -523,35 +523,39 @@ export function apply(ctx: Context, config: PersonaConfig): void {
             const name = String(args.person ?? '').trim()
             const line = String(args.text ?? '').trim()
             if (name === '' || line === '') throw new Error('person 与 text 都不能为空')
-            const existing = people.byName.get(name) ?? { name, accounts: [], notes: [] }
-            await writePerson(dir, addNote(existing, line))
-            await reloadPeople()
+            memory ??= new Memory(memoryPath(dir))
+            memory.upsertEntity('person', name)
+            memory.addFact({ about: name, text: line, at: Date.now() })
             journal.note('memory', `${name}：${line}`)
             return '记到 ' + name + ' 名下了'
           },
         },
         {
-          name: 'link_account',
-          description: '把一个账号认成某个人：小号和老号指向同一份画像。账号写成 平台:id，例如 qq:123456。',
+          name: 'memory_search',
+          description: '在你的长期记忆里搜。想知道谁以前说过什么、某件事是什么时候聊的，就来这里找 —— 记忆不在上下文里，要查才有。',
           parameters: {
             type: 'object',
             properties: {
-              account: { type: 'string', description: '平台:id，例如 qq:123456' },
-              person: { type: 'string', description: '画像名' },
+              query: { type: 'string', description: '要找的词或句子' },
+              limit: { type: 'number', description: '最多几条，默认 10' },
               principal: PRINCIPAL_PARAMETER,
             },
-            required: ['account', 'person', 'principal'],
+            required: ['query', 'principal'],
           },
           async run(args: Record<string, unknown>) {
-            const account = String(args.account ?? '').trim().toLowerCase()
-            const name = String(args.person ?? '').trim()
-            if (account === '' || name === '') throw new Error('account 与 person 都不能为空')
-            const existing = people.byName.get(name) ?? { name, accounts: [], notes: [] }
-            const next = addAccount(existing, account, people.byAccount)
-            await writePerson(dir, next)
-            await reloadPeople()
-            journal.note('memory', `认人：${account} = ${name}`)
-            return account + ' 记成 ' + name + ' 了'
+            const query = String(args.query ?? '').trim()
+            if (query === '') throw new Error('query 不能为空')
+            const limit = Math.max(1, Math.min(Number(args.limit ?? 10) || 10, 30))
+            memory ??= new Memory(memoryPath(dir))
+            const hits = memory.search(query, limit)
+            journal.note('memory', `查：${query} → ${hits.length} 条`)
+            if (hits.length === 0) return '记忆里没有和「' + query + '」相关的事。'
+            return hits
+              .map((hit) => {
+                const when = new Date(hit.at).toISOString().slice(0, 16).replace('T', ' ')
+                return `[${hit.kind === 'fact' ? '事' : '话'}] ${when} ${hit.body}`
+              })
+              .join('\n')
           },
         },
       ]
@@ -693,6 +697,19 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       // 先记下来，再决定理不理。没 @ 的也要「听见」，否则它对群一无所知。
       if (text !== '' || images > 0) {
+        // 不落库的东西以后都查不到：每条消息都进库，全局一份。
+        memory ??= new Memory(memoryPath(dir))
+        memory.addMessage({
+          id: event.id,
+          venue,
+          platform: event.venue.platform,
+          speakerId: event.actor?.id ?? '',
+          speakerName: event.actor?.name,
+          text,
+          at: event.timestamp,
+          platformMessageId: event.messageId,
+        })
+
         chats.set(venue, {
           key: venue,
           venue: event.venue,
@@ -740,19 +757,15 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           triggers.set(sessionId, { id: event.messageId, at: event.timestamp })
         }
 
-        people = await readPeople(dir)
-
         const message = await toInboundMessage(event, attachments, log, journal)
 
-        // 说话的人是谁：小号和老号指向同一份画像，它才不会「你谁啊」。
-        const person = people.byAccount.get(accountKey(event.venue.platform, event.actor?.id ?? ''))
-        if (person !== undefined) {
-          const notes = person.notes.slice(-3).join('；').slice(0, 120)
-          const which = person.accounts.length > 1 ? `，这是记在案的第 ${person.accounts.indexOf(accountKey(event.venue.platform, event.actor?.id ?? '')) + 1} 个账号` : ''
-          message.content.unshift({
-            type: 'text',
-            text: `（说话的是 ${person.name}${which}。你记下的：${notes === '' ? '还没有' : notes}）`,
-          })
+        // 说话的人是谁：库里关于他的最近几条事实。全局一份，换个群也认得。
+        memory ??= new Memory(memoryPath(dir))
+        const speaker = event.actor?.name ?? event.actor?.id ?? ''
+        const notes = speaker === '' ? [] : memory.recentFacts(speaker, 5)
+        if (notes.length > 0) {
+          const digest = notes.map((one) => one.text).join('；').slice(0, 200)
+          message.content.unshift({ type: 'text', text: `（说话的是 ${speaker}。你记下的：${digest}）` })
         }
         // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
         // 所以投递前先把消息 id 记下来，等 user/message 事件到了一查就知道是谁。
