@@ -23,15 +23,17 @@ describe('听见了什么', () => {
     expect(perception.state('v1')?.pending.map((one) => one.id)).toEqual(['a', 'b'])
   })
 
-  it('判过就清空，不会几轮之后又把旧消息捞出来', () => {
+  it('没去看就把消息留着：慢节奏的群五分钟攒不下两条，清了永远凑不齐', () => {
     const perception = new Perception()
     perception.observe('v1', message({ id: 'a' }))
     perception.markJudged('v1', false)
-    perception.observe('v1', message({ id: 'b' }))
+    expect(perception.state('v1')?.pending.map((one) => one.id)).toEqual(['a'])
 
-    const state = perception.state('v1')
-    expect(state?.pending.map((one) => one.id)).toEqual(['b'])
-    expect(state?.recent.map((one) => one.id)).toEqual(['a', 'b'])
+    perception.observe('v1', message({ id: 'b' }))
+    perception.markJudged('v1', true)
+    expect(perception.state('v1')?.pending).toEqual([])
+    // 看过的不会再被翻出来。
+    expect(perception.state('v1')?.recent.map((one) => one.id)).toEqual(['a', 'b'])
   })
 
   it('连着沉默会累计，开口一次就归零', () => {

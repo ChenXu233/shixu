@@ -33,6 +33,8 @@ export interface VenueState {
   firstSeenAt: number
   /** 上次「看」这个场所的时刻（判过一次就算看过）。 */
   lastVisitAt: number
+  /** 上次因为「太安静」去看的时刻。安静的地方不能每五分钟戳一次。 */
+  lastQuietVisitAt: number
 }
 
 /** 一个场所留多少条。够判断「最近在聊什么」，又不至于把内存当记忆用。 */
@@ -51,6 +53,7 @@ export class Perception {
       lastSpokeAt: 0,
       firstSeenAt: message.at,
       lastVisitAt: 0,
+      lastQuietVisitAt: 0,
     }
     state.pending.push(message)
     state.recent.push(message)
@@ -73,7 +76,8 @@ export class Perception {
   markJudged(venue: string, acted: boolean, at: number = Date.now()): void {
     const state = this.venues.get(venue)
     if (state === undefined) return
-    state.pending = []
+    // 没去看就把消息留着：慢节奏的群，五分钟里攒不下两条，清了就永远凑不齐。
+    if (acted) state.pending = []
     state.lastVisitAt = at
     if (acted) {
       state.silenceStreak = 0

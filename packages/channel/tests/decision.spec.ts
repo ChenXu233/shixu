@@ -8,6 +8,7 @@ const base = {
   isPrivate: false,
   sinceLastVisitMs: 10 * 60_000,
   sinceLastMessageMs: 5_000,
+  sinceQuietVisitMs: Number.MAX_SAFE_INTEGER,
   talkValue: 1,
   silenceStreak: 0,
 }
@@ -37,6 +38,11 @@ describe('要不要去看一眼', () => {
     const decision = decide(quiet)
     expect(decision.act).toBe('visit')
     expect(decision.reasons[0]).toContain('安静')
+  })
+
+  it('安静的地方看完就等：不能每轮巡检都戳一次', () => {
+    const quiet = { ...base, pending: 0, sinceLastMessageMs: QUIET_GAP_MS + 1, sinceQuietVisitMs: 5 * 60_000 }
+    expect(decide(quiet).act).toBe('silence')
   })
 
   it('不吵不静，就不去', () => {

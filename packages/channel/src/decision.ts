@@ -28,6 +28,8 @@ export interface DecisionInput {
   sinceLastVisitMs: number
   /** 距这个场所最后一条消息过了多少毫秒。 */
   sinceLastMessageMs: number
+  /** 距上次「因为太安静去看」过了多少毫秒；没看过是很大的数。 */
+  sinceQuietVisitMs: number
   /** 总量旋钮：越小越安静。1 = 正常。 */
   talkValue: number
   /** 连着判了几次沉默。 */
@@ -39,6 +41,9 @@ export const MIN_GAP_MS = 60_000
 
 /** 安静这么久，回去看看它在不在（talkValue = 1 时）。 */
 export const QUIET_GAP_MS = 30 * 60_000
+
+/** 因为太安静去看过一次之后，隔这么久才再去。安静的地方不能每五分钟戳一次。 */
+export const QUIET_REVISIT_MS = 3 * 60 * 60_000
 
 /** 沉默得越久，检查得越慢；封顶五次，不然会彻底失联。 */
 const backoffFactor = (silenceStreak: number): number => 1 + Math.min(silenceStreak, 5) * 0.2
@@ -58,6 +63,10 @@ export function decide(input: DecisionInput): Decision {
   const { minGap, quietGap } = gaps(input.talkValue, input.silenceStreak)
   if (input.sinceLastVisitMs < minGap) return { act: 'silence', reasons: ['刚看过'] }
   if (input.pending >= 2) return { act: 'visit', reasons: [`积压 ${input.pending} 条`] }
-  if (input.sinceLastMessageMs >= quietGap) return { act: 'visit', reasons: ['安静太久了，去看看'] }
+
+  // 太安静的时候去看一眼，但看完就等 —— 不然每轮巡检都会戳它一次。
+  if (input.sinceLastMessageMs >= quietGap && input.sinceQuietVisitMs >= QUIET_REVISIT_MS) {
+    return { act: 'visit', reasons: ['安静太久了，去看看'] }
+  }
   return { act: 'silence', reasons: ['没什么事'] }
 }

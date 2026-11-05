@@ -493,10 +493,13 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       isPrivate,
       sinceLastVisitMs: state.lastVisitAt === 0 ? Number.MAX_SAFE_INTEGER : now - state.lastVisitAt,
       sinceLastMessageMs: now - lastMessageAt,
+      sinceQuietVisitMs: state.lastQuietVisitAt === 0 ? Number.MAX_SAFE_INTEGER : now - state.lastQuietVisitAt,
       talkValue: readField<number>(config.talkValue) ?? 1,
       silenceStreak: state.silenceStreak,
     })
     const liveMode = (readField<string>(config.attention) ?? 'shadow') === 'live'
+    // 安静去看过就记一笔，下次要等三个小时。
+    if (decision.act === 'visit' && decision.reasons[0]?.includes('安静')) state.lastQuietVisitAt = now
     journal.note(
       'attention',
       `${venue} ${decision.act}${liveMode ? '' : '(影子)'} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`,
