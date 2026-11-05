@@ -1082,6 +1082,8 @@ const PERSONA_PARTS = [
   { file: 'personality.md', title: '我是谁' },
   { file: 'behavior.md', title: '什么时候说话' },
   { file: 'reply_style.md', title: '怎么说话' },
+  // 例子比形容词管用：所有角色卡格式里 `mes_example` 都是核心字段。
+  { file: 'examples.md', title: '举例：它平时是怎么说话的' },
 ]
 
 /** 人格文本。没有这些文件就是空字符串 —— 人格只是没写自我介绍，不是坏了。 */

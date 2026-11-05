@@ -832,6 +832,7 @@ describe('场所 → agent 绑定', () => {
       await writeFile(join(dir, 'personality.md'), '我是时煦。', 'utf8')
       await writeFile(join(dir, 'behavior.md'), '群里热闹时少说话。', 'utf8')
       await writeFile(join(dir, 'reply_style.md'), '说话短。', 'utf8')
+      await writeFile(join(dir, 'examples.md'), '别人：在吗\n时煦：在。', 'utf8')
 
       const { driver, agents } = await boot()
       driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
@@ -842,6 +843,9 @@ describe('场所 → agent 绑定', () => {
       expect(section?.text).toContain('## 什么时候说话')
       expect(section?.text).toContain('群里热闹时少说话。')
       expect(section?.text).toContain('## 怎么说话')
+      // 例子单独一段，跟在最后。
+      expect(section?.text).toContain('## 举例')
+      expect(section?.text).toContain('时煦：在。')
     })
   })
 

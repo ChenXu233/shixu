@@ -15,7 +15,8 @@ $DSH_HOME/persona/<personaId>/
 ├── personality.md      我是谁：身份、性格（重建会话或重启进程时读取）
 ├── behavior.md         什么时候说话：怎么观察局面、什么时候安静
 ├── reply_style.md      怎么说话：长短、语气、习惯
-├── persona.md          三段都没有时的回落：整段当「我是谁」
+├── examples.md         举例：「别人说 → 它回」，风格最强的锚
+├── persona.md          这些都没有时的回落：整段当「我是谁」
 ├── identity.json       主人名单：{"owners": ["平台用户 id"]}；没有它就是没有跨场所的主人
 ├── core.md             手写记忆：关于它自己和主人（人编辑，直接进提示）
 ├── memory/memory.db    记忆库（SQLite，全局一份）：messages / facts / paragraphs / entities / relations / profiles + FTS5 全文索引
