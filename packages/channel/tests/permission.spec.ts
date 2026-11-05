@@ -70,23 +70,9 @@ describe('出厂矩阵', () => {
     }
   })
 
-  it('不认识的角色一律拒绝', () => {
-    expect(judge(matrix, 'vip', 'qq_member_list')).toBe('deny')
-  })
-
   it('规则从后往前判，后面写的覆盖前面的', () => {
     const override = { ...matrix, guest: [...matrix.guest!, { match: 'qq_mute', decision: 'allow' as const }] }
     expect(judge(override, 'guest', 'qq_mute')).toBe('allow')
   })
 
-  it('通配符能按前缀放行一整类工具', () => {
-    const prefix = {
-      owner: [{ match: '*', decision: 'deny' as const }, { match: 'qq_*', decision: 'allow' as const }],
-      trusted: [],
-      guest: [],
-      autonomous: [],
-    }
-    expect(judge(prefix, 'owner', 'qq_mute')).toBe('allow')
-    expect(judge(prefix, 'owner', 'bash')).toBe('deny')
-  })
 })

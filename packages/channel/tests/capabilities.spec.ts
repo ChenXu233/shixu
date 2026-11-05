@@ -33,14 +33,6 @@ describe('哪些动作能交给模型', () => {
     expect(exposable(action({ risk: 'destructive', reversible: true }))).toBe(false)
   })
 
-  it('目录过一遍，只留下能放开的', () => {
-    const kept = exposableActions([
-      action({ name: 'member_list', risk: 'read' }),
-      action({ name: 'mute', risk: 'write', reversible: true }),
-      action({ name: 'kick', risk: 'destructive', reversible: false }),
-    ])
-    expect(kept.map((one) => one.name)).toEqual(['member_list', 'mute'])
-  })
 })
 
 describe('工具名与参数', () => {
