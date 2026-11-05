@@ -8,6 +8,8 @@
  * 用法：
  *   node scripts/deploy.mjs --ssh "xs/华理内网服务器" --container harness-dsh-dev
  *   node scripts/deploy.mjs --check          # 只验能不能连上
+ *   node scripts/deploy.mjs --ssh ... --container ... --persona personas/default
+ *       顺带把人格包同步过去（只同步 .md 与人设样例，不碰记忆与 identity.json）
  *
  * 目标也可以走环境变量：DEPLOY_SSH / DEPLOY_CONTAINER / DEPLOY_PROFILE。
  */
@@ -29,6 +31,8 @@ const target = {
   ssh: opts.ssh ?? process.env.DEPLOY_SSH,
   container: opts.container ?? process.env.DEPLOY_CONTAINER,
   profile: opts.profile ?? process.env.DEPLOY_PROFILE ?? 'web',
+  persona: opts.persona,
+  personaId: opts['persona-id'] ?? process.env.DEPLOY_PERSONA_ID ?? 'default',
 }
 
 if (target.ssh === undefined || target.container === undefined) {
@@ -107,6 +111,28 @@ for (const item of plugins) {
     input: readFileSync(item.local),
   })
   if (uploaded.status !== 0) throw new Error(`上传失败（${item.name}）：${uploaded.stderr ?? ''}`)
+}
+
+if (target.persona !== undefined) {
+  console.log('→ 同步人格包')
+  const dir = join(process.cwd(), target.persona)
+  if (!existsSync(dir)) throw new Error(`没找到人格包：${dir}`)
+  // 只同步人设文本与样例：identity.json 和 memory/ 是实例上的东西，不能被盖掉。
+  const files = readdirSync(dir).filter((name) => name.endsWith('.md') || name.endsWith('.example.json'))
+  const destination = `/data/dsh-home/persona/${target.personaId}`
+  remote(`docker exec ${target.container} mkdir -p ${destination}`)
+  for (const name of files) {
+    const written = spawnSync(
+      'ssh',
+      ['-o', 'BatchMode=yes', target.ssh, `docker exec -i ${target.container} sh -c 'cat > ${destination}/${name}'`],
+      { input: readFileSync(join(dir, name)) },
+    )
+    if (written.status !== 0) throw new Error(`人格文件同步失败（${name}）：${written.stderr ?? ''}`)
+  }
+  console.log(`   ${files.length} 个文件 → ${destination}`)
+  // 人设是每次投递时读的，不需要重启。只想同步人设就别跟着装包重启。
+  if (opts['persona-only'] === true) process.exit(0)
+  if (opts['persona-only'] === 'true') process.exit(0)
 }
 
 console.log('→ 装进容器')

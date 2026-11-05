@@ -62,6 +62,7 @@ pnpm test                             # 构建 + 跑全部测试（vitest）
 pnpm run typecheck                    # 逐包类型检查
 npx vitest run <spec> -t <名字>        # 只跑一条
 node scripts/deploy.mjs --ssh <别名> --container <容器> --url <对外地址>   # 构建→打包→装进容器→重启→报地址
+node scripts/deploy.mjs --ssh <别名> --container <容器> --persona personas/default --persona-only   # 只同步人格文本
 ```
 
 这是唯一一份命令块；其他文档只放指针。
