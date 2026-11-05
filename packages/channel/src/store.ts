@@ -53,9 +53,22 @@ CREATE TABLE IF NOT EXISTS messages (
   speaker_name TEXT,
   text TEXT NOT NULL,
   at INTEGER NOT NULL,
-  platform_message_id TEXT
+  platform_message_id TEXT,
+  summarized INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_venue_at ON messages(venue, at);
+
+-- 一段对话压成一段话。messages.summarized 标记它已经被压进去了。
+CREATE TABLE IF NOT EXISTS paragraphs (
+  id TEXT PRIMARY KEY,
+  venue TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  from_at INTEGER NOT NULL,
+  to_at INTEGER NOT NULL,
+  message_count INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS paragraphs_venue_at ON paragraphs(venue, to_at);
 
 CREATE TABLE IF NOT EXISTS facts (
   id TEXT PRIMARY KEY,
@@ -88,6 +101,18 @@ CREATE TABLE IF NOT EXISTS relations (
 -- trigram 分词：中文没有空格，默认分词会把整句当一个词，搜不到。
 CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(body, kind UNINDEXED, ref UNINDEXED, tokenize='trigram');
 `
+
+/** 攒够这么多条没压过的消息，就值得压一段了。 */
+export const DIGEST_EVERY = 20
+
+export interface Paragraph {
+  id: string
+  venue: string
+  summary: string
+  fromAt: number
+  toAt: number
+  messageCount: number
+}
 
 export class Memory {
   private readonly db: DatabaseSync
@@ -175,6 +200,55 @@ export class Memory {
         | undefined
       return { kind: 'message' as const, ref: row.ref, body: row.body, at: message?.at ?? 0, venue: message?.venue }
     })
+  }
+
+  /** 这个场所还没被压进段落的消息，按时间顺序。 */
+  unsummarized(venue: string, limit = DIGEST_EVERY * 2): Array<{ id: string; speaker: string; text: string; at: number }> {
+    return this.db
+      .prepare(
+        'SELECT id, COALESCE(speaker_name, speaker_id) AS speaker, text, at FROM messages WHERE venue = ? AND summarized = 0 ORDER BY at ASC LIMIT ?',
+      )
+      .all(venue, limit) as unknown as Array<{ id: string; speaker: string; text: string; at: number }>
+  }
+
+  /** 压好一段：段落落库，来源消息标记已压，免得下一轮重复压。 */
+  addParagraph(paragraph: Omit<Paragraph, 'id'> & { id?: string }, messageIds: readonly string[]): Paragraph {
+    const id = paragraph.id ?? `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    this.db
+      .prepare(
+        'INSERT INTO paragraphs (id, venue, summary, from_at, to_at, message_count, created_at) VALUES (?,?,?,?,?,?,?)',
+      )
+      .run(id, paragraph.venue, paragraph.summary, paragraph.fromAt, paragraph.toAt, paragraph.messageCount, Date.now())
+    const mark = this.db.prepare('UPDATE messages SET summarized = 1 WHERE id = ?')
+    for (const messageId of messageIds) mark.run(messageId)
+    this.index('paragraph', id, paragraph.summary)
+    return { ...paragraph, id }
+  }
+
+  /** 该刷新画像的人：facts 够多但画像还空着（或很久没更新）。 */
+  dueProfiles(limit = 2, minFacts = 3): Array<{ name: string; facts: string[] }> {
+    const rows = this.db
+      .prepare(
+        `SELECT about AS name, COUNT(*) AS n FROM facts
+         WHERE about != '' GROUP BY about HAVING n >= ?
+         AND about NOT IN (SELECT name FROM entities WHERE profile != '' AND refreshed_at > ?)
+         LIMIT ?`,
+      )
+      .all(minFacts, Date.now() - 6 * 60 * 60_000, limit) as unknown as Array<{ name: string; n: number }>
+
+    return rows.map((row) => ({
+      name: row.name,
+      facts: this.recentFacts(row.name, 12).map((one) => one.text),
+    }))
+  }
+
+  recentParagraphs(venue: string, limit = 3): Paragraph[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, venue, summary, from_at AS fromAt, to_at AS toAt, message_count AS messageCount FROM paragraphs WHERE venue = ? ORDER BY to_at DESC LIMIT ?',
+      )
+      .all(venue, limit) as unknown as Paragraph[]
+    return rows
   }
 
   recentFacts(about: string, limit = 5): Fact[] {

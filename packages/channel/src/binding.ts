@@ -8,7 +8,8 @@ import { Budget } from './budget.js'
 import { decide, QUIET_GAP_MS } from './decision.js'
 import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
-import { Memory, memoryPath } from './store.js'
+import { digestVenue, refreshProfiles, type DigestHost } from './digest.js'
+import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
 import { venueTools } from './venue-tools.js'
@@ -270,6 +271,11 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const chats = new Map<string, ChatSession>()
   /** 全局记忆：一个库，所有场所共用。 */
   let memory: Memory | undefined
+  /** 摘要会话的状态：会话事件在 inject 外面，两边都得看得见。 */
+  const DIGEST_SESSION = 'shixu-digest'
+  let digestWaiter: ((text: string) => void) | undefined
+  let digestBuffer: string[] = []
+  let maybeDigest: (venue: string) => void = () => {}
   /** 预算：同时看几个、一分钟说几句。 */
   const budget = new Budget(readField<number>(config.maxConcurrent) ?? 3, readField<number>(config.maxPerMinute) ?? 8)
   /** 会话 → 等这一轮结束的回调。同场所一次只服务一条消息，权限才不会张冠李戴。 */
@@ -296,6 +302,44 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const agents = (scoped as unknown as { agents: AgentsLike }).agents
     const live = new Map<string, AgentLike>()
     const queues = new Map<string, Promise<void>>()
+
+    // 摘要会话：压段落、写画像都走它，不占场所的上下文。
+    let digestRunning = false
+
+    const askDigest = async (prompt: string): Promise<string> => {
+      workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
+      const record = await workspace
+      const agent = await open(DIGEST_SESSION, DIGEST_SESSION, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+      const done = new Promise<string>((resolve) => {
+        digestWaiter = resolve
+      })
+      digestBuffer = []
+      agent.followup(toUserMessage(prompt))
+      return done
+    }
+
+    const digestHost = (): DigestHost | undefined =>
+      memory === undefined ? undefined : { memory, ask: askDigest, note: (text) => journal.note('memory', text) }
+
+    /** 攒够了就压一段，压完顺手刷一下画像。失败只记日志，不影响回复。 */
+    maybeDigest = (venue: string): void => {
+      const host = digestHost()
+      if (host === undefined || digestRunning) return
+      const rows = memory!.unsummarized(venue)
+      if (rows.length < DIGEST_EVERY) return
+
+      digestRunning = true
+      void (async () => {
+        try {
+          await digestVenue(host, venue, rows)
+          await refreshProfiles(host)
+        } catch (error) {
+          journal.note('memory', `压段落失败：${String(error)}`)
+        } finally {
+          digestRunning = false
+        }
+      })()
+    }
 
     /**
      * 同一场所串行、不同场所并行。
@@ -763,9 +807,18 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         memory ??= new Memory(memoryPath(dir))
         const speaker = event.actor?.name ?? event.actor?.id ?? ''
         const notes = speaker === '' ? [] : memory.recentFacts(speaker, 5)
-        if (notes.length > 0) {
+        const profile = speaker === '' ? undefined : memory.profileOf(speaker)
+        if (notes.length > 0 || profile !== undefined) {
           const digest = notes.map((one) => one.text).join('；').slice(0, 200)
-          message.content.unshift({ type: 'text', text: `（说话的是 ${speaker}。你记下的：${digest}）` })
+          const who = profile === undefined ? `（说话的是 ${speaker}。你记下的：${digest}）` : `（说话的是 ${speaker}。你记得他：${profile}）`
+          message.content.unshift({ type: 'text', text: who })
+        }
+
+        // 这个场所最近的摘要：不用把几百条消息塞进来，几句概括就够。
+        const paragraphs = memory.recentParagraphs(venue, 2)
+        if (paragraphs.length > 0) {
+          const gist = paragraphs.map((one) => one.summary).join(' \n').slice(0, 400)
+          message.content.unshift({ type: 'text', text: `（这个群最近聊过：${gist}）` })
         }
         // 会话事件只告诉我们「哪条消息进来了」，不告诉我们平台的用户 id。
         // 所以投递前先把消息 id 记下来，等 user/message 事件到了一查就知道是谁。
@@ -824,6 +877,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   ctx.effect(() => {
     const root = ctx.root as unknown as SessionContextLike
     const off = root.on('session/event', (session, event) => {
+      // 摘要会话不打回任何场所：它说的话只在这里被收走。
+      if (session.id === DIGEST_SESSION) {
+        if (event.type === 'assistant/message') {
+          const said = saidText((event.data as { message?: unknown } | undefined)?.message)
+          if (said !== '') digestBuffer.push(said)
+          return
+        }
+        if (event.type !== 'turn/end') return
+        const waiter = digestWaiter
+        digestWaiter = undefined
+        waiter?.(digestBuffer.join('\n\n').trim())
+        digestBuffer = []
+        return
+      }
+
       const chat = targets.get(session.id)
       if (chat === undefined) return
 
@@ -885,6 +953,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           fail('reply', `venue ${chat.key} 回复发送失败：${String(error)}`)
         })
       }
+
+      // 攒够了就压一段：这件事和回不回话无关，所以放在出站之后。
+      maybeDigest(session.id.replace(/^shixu-/, ''))
 
       // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
       speakers.delete(session.id)
