@@ -10,6 +10,7 @@ import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
 import { digestVenue, refreshProfiles, rollEpisode, type DigestHost } from './digest.js'
 import { exportMemory, importMemory } from './mirror.js'
+import { parseVerdict, plannerPrompt } from './planner.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
 import { splitReply, typingDelay } from './timing.js'
@@ -272,10 +273,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const chats = new Map<string, ChatSession>()
   /** 全局记忆：一个库，所有场所共用。 */
   let memory: Memory | undefined
-  /** 摘要会话的状态：会话事件在 inject 外面，两边都得看得见。 */
+  /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
-  let digestWaiter: ((text: string) => void) | undefined
-  let digestBuffer: string[] = []
+  const PLANNER_SESSION = 'shixu-planner'
+  /** 后台会话 → 等它这一轮说完的回调。判官与摘要是两条独立的路。 */
+  const backdropWaiters = new Map<string, (text: string) => void>()
+  const backdropBuffers = new Map<string, string[]>()
   let maybeDigest: (venue: string) => void = () => {}
   /** 预算：同时看几个、一分钟说几句。 */
   const budget = new Budget(readField<number>(config.maxConcurrent) ?? 3, readField<number>(config.maxPerMinute) ?? 8)
@@ -326,17 +329,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     }
     void restoreMemory()
 
-    const askDigest = async (prompt: string): Promise<string> => {
+    /** 问一个后台会话（摘要 / 判官），等它这一轮说完把话交回来。 */
+    const askBackdrop = async (sessionId: string, prompt: string, chosen?: string): Promise<string> => {
       workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
       const record = await workspace
-      const agent = await open(DIGEST_SESSION, DIGEST_SESSION, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+      const agentModel = chosen === undefined || chosen === '' ? (model(config) ?? defaultModel(ctx)) : { ...(model(config) ?? defaultModel(ctx)), ...{ model: chosen } }
+      const agent = await open(sessionId, sessionId, agents, live, dir, agentModel, log, record, attached)
       const done = new Promise<string>((resolve) => {
-        digestWaiter = resolve
+        backdropWaiters.set(sessionId, resolve)
       })
-      digestBuffer = []
+      backdropBuffers.set(sessionId, [])
       agent.followup(toUserMessage(prompt))
       return done
     }
+
+    const askDigest = (prompt: string): Promise<string> => askBackdrop(DIGEST_SESSION, prompt)
 
     const digestHost = (): DigestHost | undefined =>
       memory === undefined ? undefined : { memory, ask: askDigest, note: (text) => journal.note('memory', text) }
@@ -708,12 +715,50 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const liveMode = (readField<string>(config.attention) ?? 'shadow') === 'live'
     // 安静去看过就记一笔，下次要等三个小时。
     if (decision.act === 'visit' && decision.reasons[0]?.includes('安静')) state.lastQuietVisitAt = now
+
+    // 「有人在聊」这一种交给判官：规则只会数条数，看不懂「这句话值不值得接」。
+    const byCount = decision.act === 'visit' && decision.reasons[0]?.startsWith('积压')
+    if (!byCount) {
+      journal.note(
+        'attention',
+        `${venue} ${decision.act}${liveMode ? '' : '(影子)'} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`,
+      )
+      if (decision.act === 'visit' && liveMode) wake(venue, state)
+      else perception.markJudged(venue, decision.act === 'visit')
+      return
+    }
+
+    void askJudge(venue, state, state.pending.slice(-10), liveMode)
+  }
+
+  /** 问判官值不值得看。判官说不看，就记一笔继续沉默——它连叫醒的成本都省了。 */
+  const askJudge = async (
+    venue: string,
+    state: { recent: Array<{ id: string; name?: string; subject: string; text: string; images: number; at: number }>; lastSpokeAt: number },
+    batch: Array<{ id: string; name?: string; subject: string; text: string; images: number }>,
+    liveMode: boolean,
+  ): Promise<void> => {
+    const brief = (await readPersonaText(dir).catch(() => '')).split('\n').filter((one) => one.trim() !== '').slice(0, 2).join('，').slice(0, 120)
+    const prompt = plannerPrompt({
+      persona: brief === '' ? '一个在群里待着的人' : brief,
+      messages: batch.map((one) => ({ id: one.id, speaker: one.name ?? one.subject, text: one.text })),
+      minutesSinceSpoke: state.lastSpokeAt === 0 ? undefined : Math.round((Date.now() - state.lastSpokeAt) / 60_000),
+    })
+
+    let verdict = { look: true, reason: '' }
+    try {
+      const answer = await askBackdrop(PLANNER_SESSION, prompt, readField<string>(config.plannerModel) ?? '')
+      verdict = parseVerdict(answer)
+    } catch (error) {
+      journal.note('attention', `判官失败，按值得处理：${String(error)}`)
+    }
+
     journal.note(
       'attention',
-      `${venue} ${decision.act}${liveMode ? '' : '(影子)'} 积压=${pending} 静了=${Math.round((now - lastMessageAt) / 1000)}s｜${decision.reasons.join('，')}`,
+      `${venue} 判官=${verdict.look ? '值得' : '不值得'}${liveMode ? '' : '(影子)'} 积压=${batch.length}｜${verdict.reason}`,
     )
-    if (decision.act === 'visit' && liveMode) wake(venue, state)
-    else perception.markJudged(venue, decision.act === 'visit')
+    if (verdict.look && liveMode) wake(venue, state)
+    else perception.markJudged(venue, false)
   }
 
   /** 醒过来：把它看到的最近几条交过去，说不说由它决定。 */
@@ -901,17 +946,19 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const root = ctx.root as unknown as SessionContextLike
     const off = root.on('session/event', (session, event) => {
       // 摘要会话不打回任何场所：它说的话只在这里被收走。
-      if (session.id === DIGEST_SESSION) {
+      if (session.id === DIGEST_SESSION || session.id === PLANNER_SESSION) {
+        const buffer = backdropBuffers.get(session.id) ?? []
+        backdropBuffers.set(session.id, buffer)
         if (event.type === 'assistant/message') {
           const said = saidText((event.data as { message?: unknown } | undefined)?.message)
-          if (said !== '') digestBuffer.push(said)
+          if (said !== '') buffer.push(said)
           return
         }
         if (event.type !== 'turn/end') return
-        const waiter = digestWaiter
-        digestWaiter = undefined
-        waiter?.(digestBuffer.join('\n\n').trim())
-        digestBuffer = []
+        const waiter = backdropWaiters.get(session.id)
+        backdropWaiters.delete(session.id)
+        waiter?.(buffer.join('\n\n').trim())
+        backdropBuffers.set(session.id, [])
         return
       }
 

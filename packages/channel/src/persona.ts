@@ -28,6 +28,8 @@ export const Config = z.object({
   talkValue: z.number().default(1).volatile(),
   // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
   attention: z.string().default('shadow').volatile(),
+  // 判官（Planner）用哪个模型：留空 = 跟随部署默认。将来接 JEV 这类小模型就填在这里。
+  plannerModel: z.string().default('').volatile(),
   // 同时最多看几个场所；每分钟总共最多说几句。
   maxConcurrent: z.number().default(3).volatile(),
   maxPerMinute: z.number().default(8).volatile(),

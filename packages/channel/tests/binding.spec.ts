@@ -813,16 +813,18 @@ describe('场所 → agent 绑定', () => {
       expect(agents.created).toHaveLength(1)
     })
 
-    it('没叫它的消息先记下来，攒一批再判，但不叫醒它', async () => {
+    it('没叫它的消息攒成一批，交给判官，不叫醒它', async () => {
       const { driver, agents } = await boot({ aliasNames: ['时煦'], judgeWindowMs: 50 })
       driver.simulateInbound({ conversationId: 'g1', text: '今天好热' })
       driver.simulateInbound({ conversationId: 'g1', text: '是啊，三十八度' })
-      await new Promise((resolve) => setTimeout(resolve, 200))
+      // 判官是一个后台会话，要等它「说完」我们才记日志。
+      await new Promise((resolve) => setTimeout(resolve, 700))
 
-      expect(agents.created).toHaveLength(0)
+      // 判官自己会开一个后台会话，但场所里的人没被叫醒。
+      expect(agents.created).not.toContain('shixu-fake:bot:g1')
       const log = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
-      // 一批两条，而不是一条一判。
-      expect(log).toContain('attention')
+      // 一批两条一起去问判官，而不是一条一判。
+      expect(log).toContain('判官')
       expect(log).toContain('积压=2')
     })
 
