@@ -52,9 +52,16 @@ class FakeAgents extends Service {
 
   spawn(id: string) {
     const calls: any[] = []
+    const injected: any[] = []
     const agent = {
       sessionId: id,
       calls,
+      injected,
+      // 中途插入：不唤醒，只把内容放进模型可见的上下文。
+      inject: (payload: any) => {
+        injected.push(payload)
+        return true
+      },
       followup: (message: any) => {
         calls.push(message)
         // 真环境下这一轮会把消息记进会话（user/message），然后走完（turn/end）。
@@ -657,6 +664,47 @@ describe('场所 → agent 绑定', () => {
       const search = other?.tools?.find((tool: any) => tool.name === 'memory_search') ?? agents.tools.find((tool) => tool.name === 'memory_search')
       const found = await search.execute({ query: '咪咪', principal: 'u-owner' })
       expect(found).toContain('咪咪')
+    })
+  })
+
+  /**
+   * 破损类：**它在答上一个人的时候，下一个人得等它说完**；或者**它替别人做了主**。
+   */
+  describe('一轮里中途来了新消息', () => {
+    it('插进这一轮，而不是排队等下一轮', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '第一个问题' })
+      await tick()
+
+      const root = (agents as any).ctx.root as any
+      // 这一轮开始了，还没结束。
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/start', data: {} })
+
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-2', name: '小李', mentions: ['bot'], text: '我也问一句' })
+      await tick()
+
+      const agent = agents.live.get('shixu-fake:bot:g1')
+      // 第二条走注入，不是又一次 followup。
+      expect(agent.injected).toHaveLength(1)
+      expect(JSON.stringify(agent.injected[0])).toContain('我也问一句')
+    })
+
+    it('一轮里两个说话人：不声明替谁做就拒绝', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '一' })
+      await tick()
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/start', data: {} })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-2', name: '小李', mentions: ['bot'], text: '二' })
+      await tick()
+
+      const refuse = agents.denial({ name: 'fake_poke', arguments: {} })
+      expect(refuse).toContain('多个说话人')
+      expect(refuse).toContain('principal')
+
+      // 声明了替谁做就放行（老王是 guest，poke 是写动作，所以仍然拒绝——这里只验话术）。
+      const declared = agents.denial({ name: 'fake_echo', arguments: { principal: 'u-1' } })
+      expect(declared).toBeUndefined()
     })
   })
 

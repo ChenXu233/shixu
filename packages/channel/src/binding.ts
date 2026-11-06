@@ -41,6 +41,8 @@ export { Config }
  */
 interface AgentLike {
   followup(message: UserMessage): void
+  /** 不唤醒、只把内容放进模型可见的上下文。DSH 的这个入口是 handle 上的，见 injectInto。 */
+  inject?(payload: { content: unknown[]; source?: unknown }): unknown
   /** agent 作用域：工具与提示词段挂在这里，只对这一条会话生效。 */
   ctx?: AgentScopeLike
 }
@@ -115,6 +117,24 @@ export interface UserMessage {
 /** 附件服务里我们用得到的那一件：把编码图片换成持久引用。 */
 interface AttachmentsLike {
   admitPromptContent(content: unknown[]): Promise<unknown[]>
+}
+
+/**
+ * 把一条消息插进正在跑的那一轮。
+ *
+ * 用 inject（不唤醒、模型下一步可见），而不是 followup（那等于另起一轮）。
+ * 拿不到这个入口就返回 false，调用方退回 followup —— 插不进去可以退化成排队，
+ * 但绝不能把消息弄丢。
+ */
+function injectInto(agent: AgentLike, message: UserMessage): boolean {
+  const target = agent as unknown as { inject?: (payload: { content: unknown[]; source?: unknown }) => unknown }
+  if (typeof target.inject !== 'function') return false
+  try {
+    target.inject({ content: message.content, source: message.source })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 一条入站消息变成一个 user 消息，id 每条唯一（平台消息 id 可能重复，不能拿来当它）。 */
@@ -273,6 +293,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const chats = new Map<string, ChatSession>()
   /** 全局记忆：一个库，所有场所共用。 */
   let memory: Memory | undefined
+  /** 正在跑的那一轮（会话 id）。会话事件在 inject 外面，两边都得看得见。 */
+  const running = new Set<string>()
   /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
   const PLANNER_SESSION = 'shixu-planner'
@@ -424,12 +446,17 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       subject = declared
     } else if (speaking.size === 1) {
       subject = [...speaking.keys()][0] ?? ''
+    } else if (speaking.size === 0) {
+      // 这一轮没有可识别的发言人：可能它自己在自言自语。按「它自己」算。
+      subject = SELF
     } else {
-      // 一个场所一轮只该有一个人说话。真出现零个或两个，是我们的追踪坏了，
-      // 按拒绝处理并记一笔 —— 但不为它设计话术，也不为它写测试：一千轮真实会话里
-      // 一次都没发生过（同轮多条的，都是同一个人连发）。
-      fail('permission', `拒绝 ${name}：本轮发起人不唯一（${[...speaking.keys()].join(',') || '无'}）`)
-      return `拒绝：tool=${name} 原因=无法确定发起人`
+      // 一轮里有好几个人说话（中途插进来的消息就会造成这种情况）。
+      // 这时候「替谁做」不能靠猜，必须由模型声明 —— 声明是它唯一的义务。
+      const who = [...speaking.entries()]
+        .map(([id, display]) => (display === undefined || display === '' ? id : `${id}(${display})`))
+        .join('、')
+      fail('permission', `拒绝 ${name}：本轮有多个说话人（${who}），没有声明 principal`)
+      return `拒绝：tool=${name} 原因=这一轮有多个说话人（${who}），请用 principal 声明这条是为谁做的`
     }
 
     const role = roleOf(subject, trust)
@@ -894,7 +921,18 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         byMessage.set(message.id, { subject: event.actor?.id ?? '', name: event.actor?.name })
         subjectsByMessage.set(sessionId, byMessage)
 
-        agent.followup(message)
+        // 这一轮还在跑：把消息插进它的下一步，不另起一轮。
+        // 模型在同一个 turn 里会看到两个说话人，工具调用必须自己声明替谁做。
+        if (running.has(sessionId) && injectInto(agent, message)) {
+          // 注入不会触发 user/message，说话人得我们自己记：不然这一轮的第二个发言人
+          // 在闸门那里是隐形的，工具调用会被算到第一个人头上。
+          const said = speakers.get(sessionId) ?? new Map<string, string | undefined>()
+          said.set(event.actor?.id ?? '', event.actor?.name)
+          speakers.set(sessionId, said)
+          journal.note('deliver', `${venue} 插入进行中的一轮：${event.actor?.name ?? event.actor?.id ?? ''}`)
+        } else {
+          agent.followup(message)
+        }
         perception.markJudged(venue, true)
       })
     })
@@ -965,6 +1003,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const chat = targets.get(session.id)
       if (chat === undefined) return
 
+      // 记下「这一轮在跑」，中途来的消息才知道该插进去还是另起一轮。
+      if (event.type === 'turn/start') {
+        running.add(session.id)
+        return
+      }
+
       // 这一轮里谁真的开了口。权限判定只认这个集合 —— 不是「最近谁说过话」，
       // 更不是「平台上谁是管理员」。
       if (event.type === 'user/message') {
@@ -1020,6 +1064,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       // 攒够了就压一段：这件事和回不回话无关，所以放在出站之后。
       maybeDigest(session.id.replace(/^shixu-/, ''))
+
+      running.delete(session.id)
 
       // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
       speakers.delete(session.id)
