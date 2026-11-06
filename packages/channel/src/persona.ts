@@ -28,6 +28,9 @@ export const Config = z.object({
   talkValue: z.number().default(1).volatile(),
   // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
   attention: z.string().default('shadow').volatile(),
+  // 一段对话的生命周期（毫秒）：最后一条消息距今超过它，下一次就换一条新会话。
+  // 群聊是短聊天，会话养到底等于每轮都为几百条历史付一次钱。
+  sessionIdleMs: z.number().default(600000).volatile(),
   // 判官冷却（毫秒）：冷却期内没有新消息就不重复问，一次判官调用是真金白银。
   judgeCooldownMs: z.number().default(120000).volatile(),
   // 判官后端：`model`（一个聊天模型回一行）或 `jev`（TypeSafe System One，一次 HTTP POST）。

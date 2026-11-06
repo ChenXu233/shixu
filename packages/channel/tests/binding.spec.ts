@@ -750,6 +750,34 @@ describe('场所 → agent 绑定', () => {
     })
   })
 
+  describe('会话按一段对话切', () => {
+    it('隔久了换新会话：旧账不进新上下文', async () => {
+      // 空闲上限压到 0：两条消息必然分属两段对话。
+      const { driver, agents } = await boot({ sessionIdleMs: 0 })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '第一句' })
+      await tick()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '隔了很久的第二句' })
+      await tick()
+
+      const ids = agents.created.map((one) => one.sessionId)
+      expect(ids).toHaveLength(2)
+      // 第二段是新会话，不是把两条塞进同一条。
+      expect(ids[1]).not.toBe(ids[0])
+      expect(agents.get(ids[1]!)?.calls).toHaveLength(1)
+    })
+
+    it('连着聊还在同一段里：不该每句都开新会话', async () => {
+      const { driver, agents } = await boot({ sessionIdleMs: 600_000 })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '第一句' })
+      await tick()
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '第二句' })
+      await tick()
+
+      expect(agents.created).toHaveLength(1)
+      expect(agents.get(agents.created[0]!.sessionId)?.calls).toHaveLength(2)
+    })
+  })
+
   /**
    * 破损类：**一眼是机器人** —— 一问就秒回一大段，或者一条回复拆成八条轰炸。
    */

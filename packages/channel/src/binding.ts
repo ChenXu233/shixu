@@ -364,7 +364,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
       const record = await workspace
       const agentModel = chosen === undefined || chosen === '' ? (model(config) ?? defaultModel(ctx)) : { ...(model(config) ?? defaultModel(ctx)), ...{ model: chosen } }
-      const agent = await open(sessionId, sessionId, agents, live, dir, agentModel, log, record, attached)
+      const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached)
       const done = new Promise<string>((resolve) => {
         backdropWaiters.set(sessionId, resolve)
       })
@@ -407,7 +407,44 @@ export function apply(ctx: Context, config: PersonaConfig): void {
      * 这不是优化而是正确性：两条消息同时到达时，如果都先判断「还没有 agent」，
      * 就会重复创建、并且乱序投递。场所天然是串行的对话现场。
      */
-    const serialize = (venue: string, task: () => Promise<void>): void => {
+    /**
+   * 一个场所当前用哪条会话。
+   *
+   * 不是「一个群一条会话养到底」——那样每轮都要把前面几百条重发一遍，钱烧在历史上，
+   * 一次口误也会跟着这条会话活很久。换成「一段对话一条会话」：最后一条消息在
+   * `sessionIdleMs` 之内就接着用，超了就换一条新的，上下文从头开始。
+   */
+  const sessions = new Map<string, { id: string; lastAt: number }>()
+  /** 每个场所各自编号：第一个场所的第一段会话不该叫 ...-2。 */
+  const sessionSeq = new Map<string, number>()
+  const sessionFor = (venue: string, at: number): string => {
+    const current = sessions.get(venue)
+    const idle = readField<number>(config.sessionIdleMs) ?? 600_000
+    if (current !== undefined && at - current.lastAt < idle) {
+      current.lastAt = at
+      return current.id
+    }
+
+    // 换新会话：上一条的一切登记都撤掉，否则记忆里会堆一堆死键。
+    if (current !== undefined) {
+      live.delete(current.id)
+      targets.delete(current.id)
+      speakers.delete(current.id)
+      subjectsByMessage.delete(current.id)
+      triggers.delete(current.id)
+      running.delete(current.id)
+      urgent.delete(current.id)
+      quietTurns.delete(current.id)
+    }
+    const seq = (sessionSeq.get(venue) ?? 0) + 1
+    sessionSeq.set(venue, seq)
+    // 第一段就叫 shixu-<场所>，和以前一样；之后按序号往后排，侧栏里也好认。
+    const id = seq === 1 ? `shixu-${venue}` : `shixu-${venue}-${seq}`
+    sessions.set(venue, { id, lastAt: at })
+    return id
+  }
+
+  const serialize = (venue: string, task: () => Promise<void>): void => {
       const previous = queues.get(venue) ?? Promise.resolve()
       const next = previous.then(task, task).catch((error: unknown) => {
         // 事件不能因为一轮投递失败而静默消失。
@@ -842,14 +879,15 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       quietForMs: Date.now() - last,
       messages: state.recent.slice(-8),
     })
-    const sessionId = `shixu-${venue}`
+    // 冷场探访：也是一段新对话，接上一段只会把旧账拖进来。
+    const sessionId = sessionFor(venue, Date.now())
     targets.set(sessionId, chat)
 
     serialize(venue, async () => {
       try {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
         trust = await readIdentity(dir)
         agent.followup(toUserMessage(text))
@@ -913,7 +951,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         return
       }
 
-      const sessionId = `shixu-${venue}`
+      const sessionId = sessionFor(venue, event.timestamp)
       const chat: ChatSession = {
         key: venue,
         venue: event.venue,
@@ -927,7 +965,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, venue, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
         await equip(sessionId, agent, chat)
 
         trust = await readIdentity(dir)
@@ -1286,7 +1324,6 @@ async function prepareWorkspace(
 /** 取不到就建一个。同一场所永远只会有一个 agent。 */
 async function open(
   sessionId: string,
-  venue: string,
   agents: AgentsLike,
   live: Map<string, AgentLike>,
   dir: string,
@@ -1295,11 +1332,11 @@ async function open(
   workspace: WorkspaceRecordLike | undefined,
   attached: Set<string>,
 ): Promise<AgentLike> {
-  const existing = live.get(venue)
+  const existing = live.get(sessionId)
   if (existing !== undefined) return existing
 
   const agent = agents.get(sessionId) ?? (await createOrResume(agents, sessionId, dir, agentModel, log))
-  live.set(venue, agent)
+  live.set(sessionId, agent)
 
   if (!attached.has(sessionId)) {
     attached.add(sessionId)
