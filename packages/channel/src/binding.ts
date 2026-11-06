@@ -301,6 +301,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const lastPending = new Map<string, number>()
   /** 这一轮是被点名叫起来的：由人对着它说话，别的配额都得让路。 */
   const urgent = new Set<string>()
+  /** 这一轮它自己调了 stay_quiet：正文不出站。 */
+  const quietTurns = new Set<string>()
   /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
   const PLANNER_SESSION = 'shixu-planner'
@@ -569,6 +571,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         perception,
         send: (target, segments) => ctx.channels.send(target, segments),
         setOutbound: (id, messageId) => outbound.set(id, messageId),
+        stayQuiet: (id) => quietTurns.add(id),
       })) {
         try {
           const off = scope.tools.register({
@@ -1074,6 +1077,13 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
 
+      // 它自己说了「这一轮不说话」：结构化的一条指令，不是靠正文里写暗号。
+      if (quietTurns.has(session.id)) {
+        quietTurns.delete(session.id)
+        journal.note('attention', `${chat.key} 这轮不说话（stay_quiet）`)
+        return
+      }
+
       if (text !== '') {
         // 被点名的那一轮不受「一分钟最多几句」限制：人对着它说话，不能因为配额把它噎回去。
         if (!budget.allowSpeak() && !urgent.has(session.id)) {
@@ -1105,6 +1115,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       running.delete(session.id)
       urgent.delete(session.id)
+      quietTurns.delete(session.id)
 
       // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
       speakers.delete(session.id)

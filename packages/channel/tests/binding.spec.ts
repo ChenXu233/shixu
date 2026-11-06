@@ -487,6 +487,7 @@ describe('场所 → agent 绑定', () => {
       'fake_history',
       'fake_search',
       'fake_poke',
+      'stay_quiet',
       'fake_reply_to',
       'fake_send',
       'remember',
@@ -724,6 +725,28 @@ describe('场所 → agent 绑定', () => {
       await new Promise((resolve) => setTimeout(resolve, 60))
 
       expect(driver.sent.filter((call) => call.action === 'send')).toHaveLength(1)
+    })
+  })
+
+  describe('stay_quiet', () => {
+    it('调了就不发：结构化的一条指令，不是正文里写暗号', async () => {
+      const { driver, agents } = await boot()
+      driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '在吗' })
+      await tick()
+
+      const quiet = agents.tools.find((tool) => tool.name === 'stay_quiet')
+      expect(quiet).toBeDefined()
+      await quiet.execute({ principal: 'u-1' })
+
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text: '（没话说，安静待着）' }] } },
+      })
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/end', data: {} })
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      expect(driver.sent.filter((call) => call.action === 'send')).toHaveLength(0)
     })
   })
 

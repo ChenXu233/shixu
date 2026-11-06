@@ -19,6 +19,8 @@ export interface VenueToolContext {
   send(chat: ChatSession, segments: MessageSegment[]): Promise<unknown>
   /** 这一轮的正文挂到哪条消息下面。 */
   setOutbound(sessionId: string, messageId: string): void
+  /** 这一轮不说话：正文不出站。 */
+  stayQuiet(sessionId: string): void
 }
 
 export interface VenueTool {
@@ -29,9 +31,22 @@ export interface VenueTool {
 }
 
 export function venueTools(context: VenueToolContext): VenueTool[] {
-  const { platform, sessionId, chat, send, setOutbound } = context
+  const { platform, sessionId, chat, send, setOutbound, stayQuiet } = context
 
   return [
+    {
+      name: 'stay_quiet',
+      description: '这一轮不说话，直接安静待着。看看就好、插不上话、或者不该你插嘴的时候用它 —— 用它，不要用「（不说话）」「（沉默）」这种括号描写。',
+      parameters: {
+        type: 'object',
+        properties: { principal: PRINCIPAL_PARAMETER },
+        required: ['principal'],
+      },
+      async run() {
+        stayQuiet(sessionId)
+        return '好，这一轮不说话'
+      },
+    },
     {
       name: platform + '_reply_to',
       description: '指定：这一轮我说完的话，挂在哪条消息下面（引用回复）。只影响这一轮的正文。',
