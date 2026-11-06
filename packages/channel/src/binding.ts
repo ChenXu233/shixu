@@ -766,7 +766,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     judgeAskedAt.set(venue, now)
     lastPending.set(venue, state.pending.length)
 
-    void askJudge(venue, state, state.pending.slice(-10), liveMode)
+    // 一次给判官 20 条：太少它只看得到半句话，太多它读不完。
+    void askJudge(venue, state, state.pending.slice(-20), liveMode)
   }
 
   /** 问判官值不值得看。判官说不看，就记一笔继续沉默——它连叫醒的成本都省了。 */
@@ -814,7 +815,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       `${venue} 判官=${verdict.look ? '值得' : '不值得'}(${verdict.confidence.toFixed(2)})${liveMode ? '' : '(影子)'} 未读=${state.pending.length} 问的=${batch.length}｜${verdict.reason}`,
     )
     if (verdict.look && liveMode) wake(venue, state)
-    else perception.markJudged(venue, false)
+    else {
+      // 判官说过「不值得」的那批划掉：不划掉的话，同一个话题每次新消息都会再花一次钱。
+      perception.markSeen(venue, batch.length)
+    }
   }
 
   /** 醒过来：把它看到的最近几条交过去，说不说由它决定。 */

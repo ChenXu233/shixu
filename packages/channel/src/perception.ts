@@ -67,6 +67,19 @@ export class Perception {
     return this.venues.get(venue)
   }
 
+  /**
+   * 判官看过、决定不值得的那几条，从「没判过」里划掉。
+   *
+   * 和 markJudged 的区别：这里只划掉真的给判官看过的那些，后面的还留着 ——
+   * 不然同一批消息会被反复喂进去，每次都花一次判官的钱。
+   */
+  markSeen(venue: string, count: number, at: number = Date.now()): void {
+    const state = this.venues.get(venue)
+    if (state === undefined || count <= 0) return
+    state.pending.splice(0, Math.min(count, state.pending.length))
+    state.lastVisitAt = state.lastVisitAt === 0 ? at : state.lastVisitAt
+  }
+
   /** 现在挂着哪些场所。安静巡检要挨个看一遍。 */
   keys(): string[] {
     return [...this.venues.keys()]

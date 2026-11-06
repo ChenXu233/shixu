@@ -72,6 +72,13 @@ describe('听见了什么', () => {
     expect(perception.state('v1')?.recent.map((one) => one.id)).toEqual(['b', 'c', 'd'])
   })
 
+  it('判官看过的那批划掉，后面的还留着：同一批不花两次钱', () => {
+    const perception = new Perception()
+    for (const id of ['a', 'b', 'c', 'd']) perception.observe('v1', message({ id }))
+    perception.markSeen('v1', 2)
+    expect(perception.state('v1')?.pending.map((one) => one.id)).toEqual(['c', 'd'])
+  })
+
   it('未读也有上限：判不过来时丢最旧的，不能让历史压死', () => {
     const perception = new Perception(3)
     for (const id of ['a', 'b', 'c', 'd', 'e']) {
