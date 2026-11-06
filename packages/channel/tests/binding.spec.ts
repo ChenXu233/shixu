@@ -852,7 +852,7 @@ describe('场所 → agent 绑定', () => {
       const log = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
       // 一批两条一起去问判官，而不是一条一判。
       expect(log).toContain('判官')
-      expect(log).toContain('积压=2')
+      expect(log).toContain('未读=2')
     })
 
     it('人设三段分别进提示词：我是谁 / 什么时候说话 / 怎么说话', async () => {

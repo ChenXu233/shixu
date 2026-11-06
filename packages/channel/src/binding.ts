@@ -296,6 +296,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   let memory: Memory | undefined
   /** 正在跑的那一轮（会话 id）。会话事件在 inject 外面，两边都得看得见。 */
   const running = new Set<string>()
+  /** 判官上一次被叫的时刻与当时的未读数：冷却期内没新消息就不再花钱问一遍。 */
+  const judgeAskedAt = new Map<string, number>()
+  const lastPending = new Map<string, number>()
   /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
   const PLANNER_SESSION = 'shixu-planner'
@@ -756,13 +759,24 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       return
     }
 
+    // 判官一次是一条真实的消息，不能每条都问：冷却期内只记账，不再花一次调用。
+    const cooldown = readField<number>(config.judgeCooldownMs) ?? 120_000
+    const lastAsked = judgeAskedAt.get(venue) ?? 0
+    if (now - lastAsked < cooldown && state.pending.length <= lastPending.get(venue)!) return
+    judgeAskedAt.set(venue, now)
+    lastPending.set(venue, state.pending.length)
+
     void askJudge(venue, state, state.pending.slice(-10), liveMode)
   }
 
   /** 问判官值不值得看。判官说不看，就记一笔继续沉默——它连叫醒的成本都省了。 */
   const askJudge = async (
     venue: string,
-    state: { recent: Array<{ id: string; name?: string; subject: string; text: string; images: number; at: number }>; lastSpokeAt: number },
+    state: {
+      recent: Array<{ id: string; name?: string; subject: string; text: string; images: number; at: number }>
+      lastSpokeAt: number
+      pending: Array<{ id: string; name?: string; subject: string; text: string; images: number }>
+    },
     batch: Array<{ id: string; name?: string; subject: string; text: string; images: number }>,
     liveMode: boolean,
   ): Promise<void> => {
@@ -797,7 +811,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
     journal.note(
       'attention',
-      `${venue} 判官=${verdict.look ? '值得' : '不值得'}(${verdict.confidence.toFixed(2)})${liveMode ? '' : '(影子)'} 积压=${batch.length}｜${verdict.reason}`,
+      `${venue} 判官=${verdict.look ? '值得' : '不值得'}(${verdict.confidence.toFixed(2)})${liveMode ? '' : '(影子)'} 未读=${state.pending.length} 问的=${batch.length}｜${verdict.reason}`,
     )
     if (verdict.look && liveMode) wake(venue, state)
     else perception.markJudged(venue, false)

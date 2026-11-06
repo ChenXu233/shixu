@@ -28,6 +28,8 @@ export const Config = z.object({
   talkValue: z.number().default(1).volatile(),
   // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
   attention: z.string().default('shadow').volatile(),
+  // 判官冷却（毫秒）：冷却期内没有新消息就不重复问，一次判官调用是真金白银。
+  judgeCooldownMs: z.number().default(120000).volatile(),
   // 判官后端：`model`（一个聊天模型回一行）或 `jev`（TypeSafe System One，一次 HTTP POST）。
   judge: z.string().default('model').volatile(),
   // model 后端用哪个模型：留空 = 跟随部署默认。
