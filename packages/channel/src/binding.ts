@@ -299,6 +299,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   /** 判官上一次被叫的时刻与当时的未读数：冷却期内没新消息就不再花钱问一遍。 */
   const judgeAskedAt = new Map<string, number>()
   const lastPending = new Map<string, number>()
+  /** 这一轮是被点名叫起来的：由人对着它说话，别的配额都得让路。 */
+  const urgent = new Set<string>()
   /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
   const PLANNER_SESSION = 'shixu-planner'
@@ -916,6 +918,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         conversationType: event.conversationType,
       }
       targets.set(sessionId, chat)
+      // 这一轮是点名来的：出站时不受「一分钟几句」限制。
+      if (mentioned || event.conversationType === 'private') urgent.add(sessionId)
 
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
@@ -1071,7 +1075,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const text = said.join('\n\n').trim()
 
       if (text !== '') {
-        if (!budget.allowSpeak()) {
+        // 被点名的那一轮不受「一分钟最多几句」限制：人对着它说话，不能因为配额把它噎回去。
+        if (!budget.allowSpeak() && !urgent.has(session.id)) {
           journal.note('attention', `${chat.key} 跳过发送：这一分钟说得够多了`)
           return
         }
@@ -1099,6 +1104,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       maybeDigest(session.id.replace(/^shixu-/, ''))
 
       running.delete(session.id)
+      urgent.delete(session.id)
 
       // 一轮结束，说话人清空：下一条消息重新算，不继承上一轮的身份。
       speakers.delete(session.id)

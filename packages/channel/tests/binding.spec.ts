@@ -708,6 +708,25 @@ describe('场所 → agent 绑定', () => {
     })
   })
 
+  describe('被点名的轮次', () => {
+    it('不对「一分钟几句」设限：人对着它说话不能被配额噎回去', async () => {
+      // 配额压到 0：任何非点名的话都发不出去，点名的话必须发出去。
+      const { driver, agents } = await boot({ maxPerMinute: 0 })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '在吗' })
+      await tick()
+
+      const root = (agents as any).ctx.root as any
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, {
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text: '在。' }] } },
+      })
+      root.emit('session/event', { id: 'shixu-fake:bot:g1' }, { type: 'turn/end', data: {} })
+      await new Promise((resolve) => setTimeout(resolve, 60))
+
+      expect(driver.sent.filter((call) => call.action === 'send')).toHaveLength(1)
+    })
+  })
+
   /**
    * 破损类：**一眼是机器人** —— 一问就秒回一大段，或者一条回复拆成八条轰炸。
    */
