@@ -56,6 +56,16 @@ describe('听见了什么', () => {
     expect(perception.state('v1')?.firstSeenAt).toBe(1000)
   })
 
+  it('判成沉默不算「看过」：否则热闹的群永远轮不到下一次', () => {
+    const perception = new Perception()
+    perception.observe('v1', message({ id: 'a' }))
+    perception.markJudged('v1', false, 1000)
+    expect(perception.state('v1')?.lastVisitAt).toBe(0)
+
+    perception.markJudged('v1', true, 2000)
+    expect(perception.state('v1')?.lastVisitAt).toBe(2000)
+  })
+
   it('缓冲有上限：只留最近的', () => {
     const perception = new Perception(3)
     for (const id of ['a', 'b', 'c', 'd']) perception.observe('v1', message({ id }))

@@ -77,9 +77,10 @@ export class Perception {
     const state = this.venues.get(venue)
     if (state === undefined) return
     // 没去看就把消息留着：慢节奏的群，五分钟里攒不下两条，清了就永远凑不齐。
-    if (acted) state.pending = []
-    state.lastVisitAt = at
+    // 也只有真的去看了才算「看过」——判成沉默却刷新计时，热闹的群会永远等不到下一次。
     if (acted) {
+      state.pending = []
+      state.lastVisitAt = at
       state.silenceStreak = 0
       state.lastSpokeAt = at
     } else {
