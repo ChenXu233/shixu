@@ -10,6 +10,7 @@ import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
 import { digestVenue, refreshProfiles, rollEpisode, type DigestHost } from './digest.js'
 import { exportMemory, importMemory } from './mirror.js'
+import { askJev, type JudgeVerdict } from './judge.js'
 import { parseVerdict, plannerPrompt } from './planner.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
 import { Perception } from './perception.js'
@@ -772,17 +773,31 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       minutesSinceSpoke: state.lastSpokeAt === 0 ? undefined : Math.round((Date.now() - state.lastSpokeAt) / 60_000),
     })
 
-    let verdict = { look: true, reason: '' }
+    let verdict: JudgeVerdict = { look: true, reason: '', confidence: 1 }
+    const backend = readField<string>(config.judge) ?? 'model'
     try {
-      const answer = await askBackdrop(PLANNER_SESSION, prompt, readField<string>(config.plannerModel) ?? '')
-      verdict = parseVerdict(answer)
+      if (backend === 'jev') {
+        // 一次 HTTP POST，没有会话、没有工具循环：JEV 不是聊天模型。
+        const apiKey = process.env[readField<string>(config.jevApiKeyEnv) ?? 'TYPESAFE_API_KEY'] ?? ''
+        if (apiKey === '') throw new Error('没有 API key')
+        verdict = await askJev({
+          state: prompt,
+          baseUrl: readField<string>(config.jevBaseUrl) ?? 'https://api.typesafe.ai',
+          apiKey,
+          model: readField<string>(config.jevModel) ?? 'jev-latest',
+        })
+      } else {
+        const answer = await askBackdrop(PLANNER_SESSION, prompt, readField<string>(config.plannerModel) ?? '')
+        const parsed = parseVerdict(answer)
+        verdict = { ...parsed, confidence: 1 }
+      }
     } catch (error) {
-      journal.note('attention', `判官失败，按值得处理：${String(error)}`)
+      journal.note('attention', `判官失败（${backend}），按值得处理：${String(error)}`)
     }
 
     journal.note(
       'attention',
-      `${venue} 判官=${verdict.look ? '值得' : '不值得'}${liveMode ? '' : '(影子)'} 积压=${batch.length}｜${verdict.reason}`,
+      `${venue} 判官=${verdict.look ? '值得' : '不值得'}(${verdict.confidence.toFixed(2)})${liveMode ? '' : '(影子)'} 积压=${batch.length}｜${verdict.reason}`,
     )
     if (verdict.look && liveMode) wake(venue, state)
     else perception.markJudged(venue, false)

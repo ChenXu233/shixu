@@ -28,8 +28,14 @@ export const Config = z.object({
   talkValue: z.number().default(1).volatile(),
   // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
   attention: z.string().default('shadow').volatile(),
-  // 判官（Planner）用哪个模型：留空 = 跟随部署默认。将来接 JEV 这类小模型就填在这里。
+  // 判官后端：`model`（一个聊天模型回一行）或 `jev`（TypeSafe System One，一次 HTTP POST）。
+  judge: z.string().default('model').volatile(),
+  // model 后端用哪个模型：留空 = 跟随部署默认。
   plannerModel: z.string().default('').volatile(),
+  // jev 后端的三件事：地址、模型名、从哪个环境变量里读 key（key 本身不进配置）。
+  jevBaseUrl: z.string().default('https://api.typesafe.ai').volatile(),
+  jevModel: z.string().default('jev-latest').volatile(),
+  jevApiKeyEnv: z.string().default('TYPESAFE_API_KEY').volatile(),
   // 同时最多看几个场所；每分钟总共最多说几句。
   maxConcurrent: z.number().default(3).volatile(),
   maxPerMinute: z.number().default(8).volatile(),
