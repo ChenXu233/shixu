@@ -13,6 +13,8 @@ export const JOURNAL_LIMIT = 1024 * 1024
 export interface Journal {
   /** 记一行。写盘失败不抛：日志坏了不该让消息也坏。 */
   note(scope: string, text: string): void
+  /** 等已经排队的写盘都落完。测试要删临时目录、进程要退出时用它。 */
+  flush(): Promise<void>
 }
 
 /**
@@ -34,6 +36,9 @@ export function createJournal(dir: string, limit: number = JOURNAL_LIMIT): Journ
     note(scope, text) {
       const line = `${new Date().toISOString()} ${scope.padEnd(9)} ${text}\n`
       queue = queue.then(() => write(line)).catch(() => undefined)
+    },
+    async flush() {
+      await queue
     },
   }
 }

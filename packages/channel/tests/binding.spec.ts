@@ -42,6 +42,12 @@ class FakeAgents extends Service {
 
   async resume({ resumeSessionId }: any) {
     this.resumed.push(resumeSessionId)
+    if (this.failResume) {
+      const error = new Error('stored session "x" failed validation: session event at seq 1 lacks an identified message')
+      error.name = 'SessionPersistenceCorruptionError'
+      this.failResume = false
+      throw error
+    }
     this.persisted.add(resumeSessionId)
     return { agent: this.live.get(resumeSessionId) ?? this.spawn(resumeSessionId) }
   }
@@ -762,6 +768,23 @@ describe('场所 → agent 绑定', () => {
       await new Promise((resolve) => setTimeout(resolve, 60))
 
       expect(driver.sent.filter((call) => call.action === 'send')).toHaveLength(0)
+    })
+  })
+
+  describe('会话坏了', () => {
+    it('换一条新的，不让这个群永久哑掉', async () => {
+      const { driver, agents } = await boot()
+      // 这条会话之前落过盘，但已经坏了：create 撞 already-exists，resume 报损坏。
+      ;(agents as any).persisted.add('shixu-fake:bot:g1')
+      ;(agents as any).failResume = true
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '在吗' })
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      // 坏的那条弃用，重新开了一条；消息还是投出去了。
+      expect((agents as any).resumed.length).toBeGreaterThan(0)
+      const replacement = agents.get('shixu-fake:bot:g1-2')
+      expect(replacement).toBeDefined()
+      expect(replacement?.calls.length).toBe(1)
     })
   })
 

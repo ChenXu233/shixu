@@ -129,14 +129,25 @@ interface AttachmentsLike {
  * 但绝不能把消息弄丢。
  */
 function injectInto(agent: AgentLike, message: UserMessage): boolean {
-  const target = agent as unknown as { inject?: (payload: { content: unknown[]; source?: unknown }) => unknown }
+  // 和 followup 收的是同一种东西：**完整的 user 消息**。只给 content 会被当成
+  // 「没有身份的消息」写进会话日志，下一次 resume 会判定会话损坏 —— 线上那个群
+  // 就是这么变成一条再也发不出去的会话的。
+  const target = agent as unknown as { inject?: (input: UserMessage) => unknown }
   if (typeof target.inject !== 'function') return false
   try {
-    target.inject({ content: message.content, source: message.source })
+    target.inject(message)
     return true
   } catch {
     return false
   }
+}
+
+/** 会话日志坏了：这种情况只能弃用，重试没有意义。 */
+function looksCorrupt(error: unknown): boolean {
+  const name = (error as { name?: string } | undefined)?.name ?? ''
+  if (name.includes('Corruption')) return true
+  const text = String((error as { message?: string } | undefined)?.message ?? error)
+  return text.includes('failed validation') || text.includes('corrupt session log')
 }
 
 /** 一条入站消息变成一个 user 消息，id 每条唯一（平台消息 id 可能重复，不能拿来当它）。 */
@@ -464,6 +475,27 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const id = seq === 1 ? `shixu-${venue}` : `shixu-${venue}-${seq}`
     sessions.set(venue, { id, lastAt: at })
     return id
+  }
+
+  /**
+   * 这条会话坏了，别再用了。
+   *
+   * 会话日志一旦判定损坏，每次 resume 都会失败 —— 一个群会永久哑掉。
+   * 删掉登记，下一次就换一条新的；坏的留在磁盘上给人查。
+   */
+  const abandon = (venue: string): void => {
+    const current = sessions.get(venue)
+    if (current === undefined) return
+    sessions.delete(venue)
+    live.delete(current.id)
+    targets.delete(current.id)
+    speakers.delete(current.id)
+    subjectsByMessage.delete(current.id)
+    triggers.delete(current.id)
+    running.delete(current.id)
+    urgent.delete(current.id)
+    quietTurns.delete(current.id)
+    journal.note('deliver', `${venue} 弃用坏会话 ${current.id}`)
   }
 
   const serialize = (venue: string, task: () => Promise<void>): void => {
@@ -1012,13 +1044,21 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
-        await equip(sessionId, agent, chat)
+        // 会话坏了就换一条：坏的留在磁盘上给人查，这个群不能跟着哑掉。
+        let active = sessionId
+        let agent = await open(active, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf).catch(async (error: unknown) => {
+          if (!looksCorrupt(error)) throw error
+          abandon(venue)
+          active = sessionFor(venue, Date.now())
+          targets.set(active, chat)
+          return await open(active, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
+        })
+        await equip(active, agent, chat)
 
         trust = await readIdentity(dir)
 
         if (event.messageId !== undefined && event.messageId !== '') {
-          triggers.set(sessionId, { id: event.messageId, at: event.timestamp })
+          triggers.set(active, { id: event.messageId, at: event.timestamp })
         }
 
         const message = await toInboundMessage(event, attachments, log, journal)

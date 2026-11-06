@@ -18,7 +18,7 @@ describe('人格目录下的日志', () => {
       const journal = createJournal(dir)
       journal.note('boot', 'persona=default')
       journal.note('image', '下载失败：http://x/a.png')
-      await wait()
+      await journal.flush()
 
       const text = await readFile(join(dir, 'logs', 'shixu.log'), 'utf8')
       const lines = text.trim().split('\n')
@@ -54,7 +54,7 @@ describe('人格目录下的日志', () => {
     try {
       const journal = createJournal(join(dir, 'persona', 'default'))
       journal.note('boot', 'ok')
-      await wait()
+      await journal.flush()
       expect(await readFile(join(dir, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')).toContain('ok')
     } finally {
       // Windows 上写盘队列可能还没落完，删目录要重试几次。
