@@ -21,8 +21,8 @@ describe('醒来时看到的那段话', () => {
     expect(brief).toContain('42 分钟')
     expect(brief).toContain('[m-1] 小明：今天好热')
     expect(brief).toContain('[m-2] u2：[图片]')
-    // 它得有「可以不说」这个选项，否则每次醒来都必须说话。
-    expect(brief).toContain('不想说就只回一个 -')
+    // 说不说由它自己定，话里不该给它一个「暗号」。
+    expect(brief).toContain('没什么好说的，就别出声')
   })
 
   it('刚聊完的场所不说「没人说话」', () => {

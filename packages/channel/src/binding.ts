@@ -992,12 +992,6 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const said = pending.get(session.id) ?? []
       pending.delete(session.id)
       const text = said.join('\n\n').trim()
-      // 它选择不说话：醒是醒了，看看就走。这是正常反应，不是失败。
-      const quiet = text.trim()
-      if (quiet === '-' || quiet === '－' || quiet === '——') {
-        journal.note('attention', `${chat.key} 看过，没说话`)
-        return
-      }
 
       if (text !== '') {
         if (!budget.allowSpeak()) {

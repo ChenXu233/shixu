@@ -45,6 +45,6 @@ export function visitBrief(input: BriefInput): string {
   return [
     `（你在「${input.venueLabel}」里。${quiet}）`,
     seen,
-    '（想说就接一句，接着聊；不想说就只回一个 - ，我不会把它发出去。）',
+    '（你想接着聊就接一句；觉得没什么好说的，就别出声。）',
   ].join('\n')
 }
