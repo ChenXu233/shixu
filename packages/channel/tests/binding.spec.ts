@@ -475,13 +475,28 @@ describe('场所 → agent 绑定', () => {
     expect(persona?.interpolate).toBe(false)
   })
 
+  it('在场提示段说清「怎么才算回复」', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+    await tick()
+
+    const venue = agents.sections.find((section) => section.name === 'shixu:venue')
+    // 模型得知道：直接说话就是回复，不是非得调工具。
+    expect(venue?.text).toContain('直接说话就是回复')
+    // 也得知道 stay_quiet 会把正文整个吞掉，而不是只影响某一句。
+    expect(venue?.text).toContain('这一轮你说的任何话都不会被发出去')
+    // 括号旁白发出去过一次，得挡住。
+    expect(venue?.text).toContain('不要用括号描写')
+  })
+
   it('没人设文件就不装人设段，但记忆那段一直在', async () => {
     const { driver, agents } = await boot()
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
     // 人格只是没写自我介绍；记忆段是它知道自己能记事的地方，不能跟着消失。
-    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:core'])
+    // 没写自我介绍而已；「你在哪儿、怎么回」和记忆段都还在。
+    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:venue', 'shixu:core'])
     expect(agents.tools.map((tool) => tool.name)).toEqual([
       'fake_echo',
       'fake_history',

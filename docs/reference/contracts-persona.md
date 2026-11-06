@@ -99,6 +99,18 @@ interface VenuePresence {
 
 场所生命周期只有三个状态，转移规则见[人格与场所](../explanation/persona-presence.md#场所生命周期)。
 
+## 提示词里有什么
+
+每次投递前按顺序拼三段，顺序即 `order`：
+
+| 段 | order | 内容 |
+|---|---|---|
+| `shixu:persona` | 10 | 人格文本（personality / behavior / reply_style / examples），没写就整段消失 |
+| `shixu:venue` | 15 | 它在哪个会话里、**直接说话就是回复**、三个出站工具各管什么、调用要带 `principal`、不要用括号写旁白 |
+| `shixu:core` | 20 | `core.md` 手写记忆 |
+
+`shixu:venue` 是引擎给的，不写进人格：它解释的是「这一轮怎么运作」，人格文件解释的是「它是谁」。
+
 ## 记忆分层与可见性
 
 | 层 | 内容 | 可见范围 |

@@ -10,6 +10,7 @@ import { createJournal, type Journal } from './journal.js'
 import { readCore } from './memory.js'
 import { digestVenue, refreshProfiles, rollEpisode, type DigestHost } from './digest.js'
 import { exportMemory, importMemory } from './mirror.js'
+import { venueSection } from './brief.js'
 import { askJev, type JudgeVerdict } from './judge.js'
 import { parseVerdict, plannerPrompt } from './planner.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
@@ -529,6 +530,22 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
           fail('equip', `人格提示段注册失败：${String(error)}`)
+        }
+      }
+
+      // 它现在站在哪儿、说话怎么算发出去了。这一段以前没有，模型只能从工具描述里
+      // 反推「我直接说话就是回复」，常常推错：要么不动，要么用括号写旁白。
+      if (scope.systemPrompt !== undefined) {
+        try {
+          const off = scope.systemPrompt.section({
+            name: 'shixu:venue',
+            order: 15,
+            text: venueSection(chat),
+            interpolate: false,
+          })
+          if (typeof off === 'function') disposers.push(off as () => void)
+        } catch (error) {
+          fail('equip', `在场提示段注册失败：${String(error)}`)
         }
       }
 

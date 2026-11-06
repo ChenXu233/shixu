@@ -36,7 +36,7 @@ export function venueTools(context: VenueToolContext): VenueTool[] {
   return [
     {
       name: 'stay_quiet',
-      description: '这一轮不说话，直接安静待着。看看就好、插不上话、或者不该你插嘴的时候用它 —— 用它，不要用「（不说话）」「（沉默）」这种括号描写。',
+      description: '这一轮不发言。调了它之后，这一轮你说的任何话都不会被发出去——不管正文写了什么，都只留在这里。看看就好、插不上话、不该你插嘴的时候用它。',
       parameters: {
         type: 'object',
         properties: { principal: PRINCIPAL_PARAMETER },
@@ -44,7 +44,7 @@ export function venueTools(context: VenueToolContext): VenueTool[] {
       },
       async run() {
         stayQuiet(sessionId)
-        return '好，这一轮不说话'
+        return '好，这一轮不发言。你接下来写的任何内容都不会被发出去。'
       },
     },
     {
