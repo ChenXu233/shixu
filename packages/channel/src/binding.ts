@@ -304,6 +304,8 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   const urgent = new Set<string>()
   /** 这一轮它自己调了 stay_quiet：正文不出站。 */
   const quietTurns = new Set<string>()
+  /** 后台会话用完就释放：判官一次一问，不该在内存里留几百个 agent。 */
+  const disposerOf = new Map<string, () => void>()
   /** 后台会话（摘要、判官）的状态：会话事件在 inject 外面，两边都得看得见。 */
   const DIGEST_SESSION = 'shixu-digest'
   const PLANNER_SESSION = 'shixu-planner'
@@ -360,18 +362,37 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     }
     void restoreMemory()
 
-    /** 问一个后台会话（摘要 / 判官），等它这一轮说完把话交回来。 */
-    const askBackdrop = async (sessionId: string, prompt: string, chosen?: string): Promise<string> => {
+    let backdropSeq = 0
+    /**
+     * 问一个后台会话（摘要 / 判官），等它这一轮说完把话交回来。
+     *
+     * **一次一问，用完就扔**：每次都开新会话，答完立刻释放。复用一条会话的话，
+     * 几百次判断会全堆在上下文里 —— 既越问越贵，上一批的结论也会干扰这一批。
+     * 判官要的是「只看眼前这一批」，历史对它只有坏处。
+     */
+    const askBackdrop = async (kind: string, prompt: string, chosen?: string): Promise<string> => {
       workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
       const record = await workspace
       const agentModel = chosen === undefined || chosen === '' ? (model(config) ?? defaultModel(ctx)) : { ...(model(config) ?? defaultModel(ctx)), ...{ model: chosen } }
-      const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached)
+      backdropSeq += 1
+      const sessionId = `${kind}-${Date.now().toString(36)}-${backdropSeq.toString(36)}`
+      const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached, disposerOf)
       const done = new Promise<string>((resolve) => {
         backdropWaiters.set(sessionId, resolve)
       })
       backdropBuffers.set(sessionId, [])
       agent.followup(toUserMessage(prompt))
-      return done
+      const answer = await done
+      live.delete(sessionId)
+      backdropBuffers.delete(sessionId)
+      const dispose = disposerOf.get(sessionId)
+      disposerOf.delete(sessionId)
+      try {
+        dispose?.()
+      } catch {
+        /* 释放失败不影响判定结果 */
+      }
+      return answer
     }
 
     const askDigest = (prompt: string): Promise<string> => askBackdrop(DIGEST_SESSION, prompt)
@@ -524,6 +545,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
       persona ??= readPersonaText(dir)
       const text = await persona
+      journal.note('equip', `人格文本 ${text.length} 字，提示段=${scope.systemPrompt === undefined ? '没有' : '有'}（${sessionId}）`)
       if (text !== '' && scope.systemPrompt !== undefined) {
         try {
           const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
@@ -904,7 +926,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       try {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
         await equip(sessionId, agent, chat)
         trust = await readIdentity(dir)
         agent.followup(toUserMessage(text))
@@ -982,7 +1004,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       serialize(venue, async () => {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached)
+        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
         await equip(sessionId, agent, chat)
 
         trust = await readIdentity(dir)
@@ -1078,8 +1100,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
   ctx.effect(() => {
     const root = ctx.root as unknown as SessionContextLike
     const off = root.on('session/event', (session, event) => {
-      // 摘要会话不打回任何场所：它说的话只在这里被收走。
-      if (session.id === DIGEST_SESSION || session.id === PLANNER_SESSION) {
+      // 摘要 / 判官会话不打回任何场所：它们说的话只在这里被收走。
+      // 每次都是新会话（用完即弃），所以按前缀认，不能按固定 id 认。
+      if (session.id.startsWith(DIGEST_SESSION) || session.id.startsWith(PLANNER_SESSION)) {
         const buffer = backdropBuffers.get(session.id) ?? []
         backdropBuffers.set(session.id, buffer)
         if (event.type === 'assistant/message') {
@@ -1348,11 +1371,14 @@ async function open(
   log: Logger,
   workspace: WorkspaceRecordLike | undefined,
   attached: Set<string>,
+  disposers: Map<string, () => void>,
 ): Promise<AgentLike> {
   const existing = live.get(sessionId)
   if (existing !== undefined) return existing
 
-  const agent = agents.get(sessionId) ?? (await createOrResume(agents, sessionId, dir, agentModel, log))
+  const created = agents.get(sessionId) === undefined ? await createOrResume(agents, sessionId, dir, agentModel, log) : undefined
+  const agent = created?.agent ?? (agents.get(sessionId) as AgentLike)
+  if (created?.dispose !== undefined) disposers.set(sessionId, created.dispose)
   live.set(sessionId, agent)
 
   if (!attached.has(sessionId)) {
@@ -1379,15 +1405,15 @@ async function createOrResume(
   dir: string,
   agentModel: AgentModel | undefined,
   log: Logger,
-): Promise<AgentLike> {
+): Promise<{ agent: AgentLike; dispose?: () => void }> {
   const options = agentModel === undefined ? {} : { agentOptions: agentModel }
   try {
     const handle = await agents.create({ sessionId, meta: { cwd: dir }, ...options })
     log.info('新场所会话 %s，cwd=%s', sessionId, dir)
-    return handle.agent
+    return { agent: handle.agent, dispose: (handle as { dispose?: () => void }).dispose }
   } catch (error) {
     if ((error as { name?: string } | undefined)?.name !== 'SessionAlreadyExistsError') throw error
     const handle = await agents.resume({ resumeSessionId: sessionId, ...options })
-    return handle.agent
+    return { agent: handle.agent }
   }
 }
