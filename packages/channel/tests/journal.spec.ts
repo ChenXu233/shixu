@@ -27,7 +27,8 @@ describe('人格目录下的日志', () => {
       expect(lines[1]).toContain('image')
       expect(lines[1]).toContain('下载失败：http://x/a.png')
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      // Windows 上写盘队列可能还没落完，删目录要重试几次。
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
     }
   })
 
@@ -43,7 +44,8 @@ describe('人格目录下的日志', () => {
       const current = await stat(join(dir, 'logs', 'shixu.log')).catch(() => undefined)
       expect(current === undefined || current.size <= 120).toBe(true)
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      // Windows 上写盘队列可能还没落完，删目录要重试几次。
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
     }
   })
 
@@ -55,7 +57,8 @@ describe('人格目录下的日志', () => {
       await wait()
       expect(await readFile(join(dir, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')).toContain('ok')
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      // Windows 上写盘队列可能还没落完，删目录要重试几次。
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
     }
   })
 })

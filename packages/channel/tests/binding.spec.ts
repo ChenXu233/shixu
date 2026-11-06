@@ -469,7 +469,7 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    const persona = agents.sections.find((section) => section.name === 'shixu:persona')
+    const persona = agents.sections.find((section) => section.name === 'deployment:persona-prefix')
     expect(persona?.text).toBe('我是时煦，说话简短。')
     // 人设是给人写的，里面的 {{…}} 不该被当成提示词变量去解析。
     expect(persona?.interpolate).toBe(false)
@@ -952,7 +952,8 @@ describe('场所 → agent 绑定', () => {
       driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
       await tick()
 
-      const section = agents.sections.find((one) => one.name === 'shixu:persona')
+      // 注册在部署人设那一格，才盖得住「You are a coding agent」。
+      const section = agents.sections.find((one) => one.name === 'deployment:persona-prefix')
       expect(section?.text).toContain('## 我是谁')
       expect(section?.text).toContain('## 什么时候说话')
       expect(section?.text).toContain('群里热闹时少说话。')

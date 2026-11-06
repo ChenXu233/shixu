@@ -543,12 +543,20 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const scope = agent.ctx
       if (scope === undefined) return
 
-      persona ??= readPersonaText(dir)
-      const text = await persona
+      // 每次装备都现读：文件是人改的，改完下一条就该生效，不能吃一次缓存吃到进程死。
+      const text = await readPersonaText(dir).catch(() => '')
       journal.note('equip', `人格文本 ${text.length} 字，提示段=${scope.systemPrompt === undefined ? '没有' : '有'}（${sessionId}）`)
       if (text !== '' && scope.systemPrompt !== undefined) {
         try {
-          const off = scope.systemPrompt.section({ name: 'shixu:persona', order: 10, text, interpolate: false })
+          // 用**部署人设那一段的名字**注册，才会遮蔽它，而不是排在它后面。
+          // 排在后面时，模型先看到的是「You are a coding agent…」，问到身份它就照那句答，
+          // 人格只是背景音。这正是线上「压根没有人格」的来源。
+          const shadow = scope.systemPrompt as unknown as {
+            getSectionOrder?(name: string): number
+            section(options: { name: string; order: number; text: string; interpolate?: boolean }): unknown
+          }
+          const order = typeof shadow.getSectionOrder === 'function' ? shadow.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX') : 0
+          const off = shadow.section({ name: 'deployment:persona-prefix', order, text, interpolate: false })
           if (typeof off === 'function') disposers.push(off as () => void)
         } catch (error) {
           fail('equip', `人格提示段注册失败：${String(error)}`)

@@ -105,11 +105,13 @@ interface VenuePresence {
 
 | 段 | order | 内容 |
 |---|---|---|
-| `shixu:persona` | 10 | 人格文本（personality / behavior / reply_style / examples），没写就整段消失 |
+| `deployment:persona-prefix` | 部署人设那格的顺序 | 人格文本（personality / behavior / reply_style / examples）。**用这个名字注册才会盖住**部署的「You are a coding agent…」；排在它后面人格只是背景音 |
 | `shixu:venue` | 15 | 它在哪个会话里、**直接说话就是回复**、三个出站工具各管什么、调用要带 `principal`、不要用括号写旁白 |
 | `shixu:core` | 20 | `core.md` 手写记忆 |
 
 `shixu:venue` 是引擎给的，不写进人格：它解释的是「这一轮怎么运作」，人格文件解释的是「它是谁」。
+
+人格文本在**每次装备时现读**：改完文件，下一条消息就生效，不吃进程级缓存。
 
 ## 记忆分层与可见性
 
