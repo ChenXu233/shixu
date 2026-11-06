@@ -72,4 +72,14 @@ describe('听见了什么', () => {
     expect(perception.state('v1')?.recent.map((one) => one.id)).toEqual(['b', 'c', 'd'])
   })
 
+  it('未读也有上限：判不过来时丢最旧的，不能让历史压死', () => {
+    const perception = new Perception(3)
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      perception.observe('v1', message({ id }))
+      perception.markJudged('v1', false)
+    }
+    // 判成沉默不清空，但也不能无限涨。
+    expect(perception.state('v1')?.pending.map((one) => one.id)).toEqual(['c', 'd', 'e'])
+  })
+
 })
