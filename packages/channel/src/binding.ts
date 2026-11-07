@@ -1059,6 +1059,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       if (mentioned || event.conversationType === 'private') urgent.add(sessionId)
 
       serialize(venue, async () => {
+        const beganAt = Date.now()
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
         // 会话坏了就换一条：坏的留在磁盘上给人查，这个群不能跟着哑掉。
@@ -1070,7 +1071,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           targets.set(active, chat)
           return await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf, true)
         })
+        const openedAt = Date.now()
         await equip(active, agent, chat)
+        const equippedAt = Date.now()
 
         trust = await readIdentity(dir)
 
@@ -1108,6 +1111,20 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         // 从收到到真正投给模型隔了多久：卡住的时候必须能从日志里一眼看出来。
         const spent = Date.now() - event.timestamp
         if (spent > 5000) journal.note('deliver', `${venue} 排队 ${Math.round(spent / 1000)}s 才轮到它说话`)
+        if (spent > 1_000) {
+          journal.note(
+            'timing',
+            `${venue} 收到→投递 ${spent}ms（建会话 ${openedAt - beganAt}ms 装工具 ${equippedAt - openedAt}ms 备内容 ${Date.now() - equippedAt}ms）`,
+          )
+        }
+
+        // 等太久了就别回了：一句迟到的回答，内容一定是错的 —— 群里早聊到别处去了。
+        const staleAfter = readField<number>(config.staleAfterMs) ?? 120_000
+        if (spent > staleAfter) {
+          journal.note('deliver', `${venue} 丢弃过期消息：等了 ${Math.round(spent / 1000)}s（上限 ${Math.round(staleAfter / 1000)}s）`)
+          perception.markJudged(venue, true)
+          return
+        }
 
         if (running.has(sessionId) && injectInto(agent, message)) {
           // 注入不会触发 user/message，说话人得我们自己记：不然这一轮的第二个发言人

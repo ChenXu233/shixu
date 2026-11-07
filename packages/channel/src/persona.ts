@@ -28,6 +28,8 @@ export const Config = z.object({
   talkValue: z.number().default(1).volatile(),
   // 注意力模式：shadow 只记日志（默认），live 真叫醒它去看。
   attention: z.string().default('shadow').volatile(),
+  // 一条消息等了超过这么久就别回了（毫秒）：迟到的回答内容一定是错的。
+  staleAfterMs: z.number().default(120000).volatile(),
   // 一段对话的生命周期（毫秒）：最后一条消息距今超过它，下一次就换一条新会话。
   // 群聊是短聊天，会话养到底等于每轮都为几百条历史付一次钱。
   sessionIdleMs: z.number().default(600000).volatile(),

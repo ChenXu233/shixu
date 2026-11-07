@@ -772,6 +772,22 @@ describe('场所 → agent 绑定', () => {
     })
   })
 
+  describe('等太久了', () => {
+    it('超过上限就丢掉，不拿一句迟到的回答去凑数', async () => {
+      // 上限压到 0：任何等待都算过期。
+      const { driver, agents } = await boot({ staleAfterMs: 0 })
+      driver.simulateInbound({ conversationId: 'g1', userId: 'u-1', name: '老王', mentions: ['bot'], text: '在吗' })
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      const log = await readFile(join(home, 'persona', 'default', 'logs', 'shixu.log'), 'utf8')
+      expect(log).toContain('丢弃过期消息')
+      // 别投给模型：投了就会真的发出一个错误回答。
+      const ids = agents.created.map((one) => one.sessionId)
+      const last = agents.get(ids[ids.length - 1]!)
+      expect(last?.calls.length ?? 0).toBe(0)
+    })
+  })
+
   describe('会话坏了', () => {
     it('换一条新的，不让这个群永久哑掉', async () => {
       const { driver, agents } = await boot()
