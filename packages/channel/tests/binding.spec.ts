@@ -296,11 +296,11 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    // 跟随部署默认的模型，但**不带 reasoningEffort**：部署那个是给编码任务配的 max 档，
-    // 群聊里一轮要推理一分钟，没人等得起。
+    // 跟随部署默认的模型，但推理档压到 low：部署那个 max 档一轮要推理一分钟。
     expect(agents.created[0].model).toEqual({
       provider: 'openrouter',
       model: 'deepseek-v4.1-flash-oc',
+      reasoningEffort: 'low',
     })
   })
 

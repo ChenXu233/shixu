@@ -573,6 +573,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
    *
    * 人格配置里写了就照写；没写就跟随部署默认，但**去掉 reasoningEffort**。
    * 部署默认是给编码任务配的 max 档，一次群聊回复要推理一分钟 —— 群里没人等得起。
+   * 所以跟随默认模型时，推理档固定降到 `low`：群聊要的是快，不是想得深。
    */
   const venueModel = (): AgentModel | undefined => {
     const explicit = model(config)
@@ -581,7 +582,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     if (base === undefined) return undefined
     const { provider, model: id } = base
     if (provider === undefined || id === undefined) return base
-    return { provider, model: id }
+    return { provider, model: id, reasoningEffort: 'low' }
   }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
