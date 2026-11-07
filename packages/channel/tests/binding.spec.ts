@@ -320,8 +320,8 @@ describe('场所 → agent 绑定', () => {
 
     const calls = agents.get('shixu-fake:bot:g1').calls
     expect(calls).toHaveLength(2)
-    expect(calls[0].content[0].text).toMatch(/先$/)
-    expect(calls[1].content[0].text).toMatch(/后$/)
+    expect(calls[0].content.at(-1).text).toMatch(/先$/)
+    expect(calls[1].content.at(-1).text).toMatch(/后$/)
   })
 
   it('不同场所各有自己的 agent', async () => {
@@ -331,8 +331,8 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     expect(agents.created).toHaveLength(2)
-    expect(agents.get('shixu-fake:bot:g1').calls[0].content[0].text).toMatch(/A 群/)
-    expect(agents.get('shixu-fake:bot:g2').calls[0].content[0].text).toMatch(/B 群/)
+    expect(agents.get('shixu-fake:bot:g1').calls[0].content.at(-1).text).toMatch(/A 群/)
+    expect(agents.get('shixu-fake:bot:g2').calls[0].content.at(-1).text).toMatch(/B 群/)
   })
 
   it('来源事实走消息前缀（不进 source kind）', async () => {
@@ -340,7 +340,7 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', userId: 'u1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    const text = agents.get('shixu-fake:bot:g1').calls[0].content[0].text
+    const text = agents.get('shixu-fake:bot:g1').calls[0].content.at(-1).text
     expect(text).toMatch(/^<dsh_source [^>]*venue="fake\/bot\/g1"/)
     expect(text).toMatch(/你好$/)
   })
@@ -487,7 +487,8 @@ describe('场所 → agent 绑定', () => {
     driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
     await tick()
 
-    const venue = agents.sections.find((section) => section.name === 'shixu:venue')
+    const delivered = agents.get('shixu-fake:bot:g1')?.calls[0]
+    const venue = { text: delivered.content.map((one: any) => one.text ?? '').join('\n') }
     // 模型得知道：直接说话就是回复，不是非得调工具。
     expect(venue?.text).toContain('直接说话就是回复')
     // 也得知道 stay_quiet 会把正文整个吞掉，而不是只影响某一句。
@@ -503,7 +504,7 @@ describe('场所 → agent 绑定', () => {
 
     // 人格只是没写自我介绍；记忆段是它知道自己能记事的地方，不能跟着消失。
     // 没写自我介绍而已；「你在哪儿、怎么回」和记忆段都还在。
-    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:venue', 'shixu:core'])
+    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:core'])
     expect(agents.tools.map((tool) => tool.name)).toEqual([
       'fake_echo',
       'fake_history',
@@ -1031,9 +1032,10 @@ describe('场所 → agent 绑定', () => {
       await tick()
 
       const content = agents.get('shixu-fake:bot:g1').calls[0].content
-      expect(content).toHaveLength(2)
-      expect(content[0].type).toBe('text')
-      expect(content[1]).toEqual({ type: 'image', attachment: 'ref-1' })
+      // 第一块是在场说明，正文与图片跟在后面。
+      expect(content).toHaveLength(3)
+      expect(content[1].type).toBe('text')
+      expect(content[2]).toEqual({ type: 'image', attachment: 'ref-1' })
       // 交给附件服务的是 base64 与认出来的类型，不是一个地址。
       expect(attachments?.seen[1]).toMatchObject({ type: 'image', mediaType: 'image/png' })
     } finally {
@@ -1052,8 +1054,9 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     const content = agents.get('shixu-fake:bot:g1').calls[0].content
-    expect(content).toHaveLength(1)
-    expect(content[0].type).toBe('text')
+    // 只有在场说明和正文两块：坏图没有变成第三块。
+    expect(content).toHaveLength(2)
+    expect(content[1].type).toBe('text')
     expect(attachments?.seen).toHaveLength(0)
 
     // 失败要留现场：人格目录下的日志里得有这条，否则出问题又只能靠猜。

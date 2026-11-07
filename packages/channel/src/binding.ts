@@ -612,21 +612,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         }
       }
 
-      // 它现在站在哪儿、说话怎么算发出去了。这一段以前没有，模型只能从工具描述里
-      // 反推「我直接说话就是回复」，常常推错：要么不动，要么用括号写旁白。
-      if (scope.systemPrompt !== undefined) {
-        try {
-          const off = scope.systemPrompt.section({
-            name: 'shixu:venue',
-            order: 15,
-            text: venueSection(chat),
-            interpolate: false,
-          })
-          if (typeof off === 'function') disposers.push(off as () => void)
-        } catch (error) {
-          fail('equip', `在场提示段注册失败：${String(error)}`)
-        }
-      }
+      // 在场说明**不进系统提示**：它含场所 id，一进系统提示，不同群的前缀就在这里分叉，
+      // 供应商的按前缀缓存全废。它改挂在每条消息前面（见 withVenueNote），
+      // 系统提示就只剩下人格和记忆——这两样在整个人格里是全局一致的。
 
       // 它自己的记忆：写进 core.md，读进提示。有记忆它才知道该学什么。
       const coreSection = (memory: string): string =>
@@ -986,7 +974,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const agent = await open(sessionId, agents, live, dir, venueModel(), log, record, attached, disposerOf, true)
         await equip(sessionId, agent, chat)
         trust = await readIdentity(dir)
-        agent.followup(toUserMessage(text))
+        const brief = toUserMessage(text)
+        brief.content.unshift({ type: 'text', text: venueSection(chat) })
+        agent.followup(brief)
         perception.markJudged(venue, true)
       } finally {
         budget.leave(venue)
@@ -1093,6 +1083,9 @@ export function apply(ctx: Context, config: PersonaConfig): void {
           const who = profile === undefined ? `（说话的是 ${speaker}。你记下的：${digest}）` : `（说话的是 ${speaker}。你记得他：${profile}）`
           message.content.unshift({ type: 'text', text: who })
         }
+
+        // 在场说明跟着消息走，不占系统提示：系统提示要跨场所逐字节一致，缓存才命得中。
+        message.content.unshift({ type: 'text', text: venueSection(chat) })
 
         // 这个场所最近的摘要：不用把几百条消息塞进来，几句概括就够。
         const paragraphs = memory.recentParagraphs(venue, 2)
