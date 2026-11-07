@@ -592,60 +592,57 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const scope = agent.ctx
       if (scope === undefined) return
 
-      // 每次装备都现读：文件是人改的，改完下一条就该生效，不能吃一次缓存吃到进程死。
-      const text = await readPersonaText(dir).catch(() => '')
-      journal.note('equip', `人格文本 ${text.length} 字，提示段=${scope.systemPrompt === undefined ? '没有' : '有'}（${sessionId}）`)
-      if (text !== '' && scope.systemPrompt !== undefined) {
+      // 系统提示只有这一段：人格 + 它自己的记忆。
+      //
+      // 用**部署人设那一段的名字**注册并且标 complete，才会把整段提示换成我们的内容 ——
+      // 不然上面永远有一句「You are an AI agent powered by DeepSeek Harness」，
+      // 问到身份它就照那句答。记忆也并进来：complete 之后别的段都进不来。
+      const systemText = async (): Promise<string> => {
+        const personaText = await readPersonaText(dir).catch(() => '')
+        const memory = await readCore(dir).catch(() => '')
+        const core =
+          memory.trim() === ''
+            ? '（你还没有记下任何事。遇到以后还想得起来的事，就用 remember 记一笔。）'
+            : '（下面是你自己记下的事。）\n' + memory
+        return [personaText, core].filter((one) => one.trim() !== '').join('\n\n')
+      }
+
+      if (scope.systemPrompt !== undefined) {
         try {
-          // 用**部署人设那一段的名字**注册，才会遮蔽它，而不是排在它后面。
-          // 排在后面时，模型先看到的是「You are a coding agent…」，问到身份它就照那句答，
-          // 人格只是背景音。这正是线上「压根没有人格」的来源。
           const shadow = scope.systemPrompt as unknown as {
             getSectionOrder?(name: string): number
-            section(options: { name: string; order: number; text: string; interpolate?: boolean }): unknown
+            section(options: {
+              name: string
+              order: number
+              text: string | ((context: unknown) => string)
+              interpolate?: boolean
+              complete?: boolean
+            }): unknown
           }
           const order = typeof shadow.getSectionOrder === 'function' ? shadow.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX') : 0
-          const off = shadow.section({ name: 'deployment:persona-prefix', order, text, interpolate: false })
+          // 每次装配都现读：人改了人格文件，下一条消息就生效。
+          let cache: { at: number; text: string } | undefined
+          const provider = (): string => {
+            // 装配是同步的，这里只做一次廉价的读；500ms 内复用上一次的结果。
+            if (cache !== undefined && Date.now() - cache.at < 500) return cache.text
+            return cache?.text ?? ''
+          }
+          const off = shadow.section({
+            name: 'deployment:persona-prefix',
+            order,
+            text: provider,
+            interpolate: false,
+            complete: true,
+          })
           if (typeof off === 'function') disposers.push(off as () => void)
+          void systemText().then((text) => {
+            cache = { at: Date.now(), text }
+            journal.note('equip', `系统提示 ${text.length} 字（${sessionId}）`)
+          })
         } catch (error) {
           fail('equip', `人格提示段注册失败：${String(error)}`)
         }
       }
-
-      // 在场说明**不进系统提示**：它含场所 id，一进系统提示，不同群的前缀就在这里分叉，
-      // 供应商的按前缀缓存全废。它改挂在每条消息前面（见 withVenueNote），
-      // 系统提示就只剩下人格和记忆——这两样在整个人格里是全局一致的。
-
-      // 它自己的记忆：写进 core.md，读进提示。有记忆它才知道该学什么。
-      const coreSection = (memory: string): string =>
-        memory === ''
-          ? '（你还没有存下任何记忆。遇到以后还想得起来的事，就用 remember 记一笔。）'
-          : '（下面是你自己记下的事。要用 remember 添加，或者用 remember 的 replaced 参数改掉记错的那条。）\n' + memory
-
-      let coreOff: (() => void) | undefined
-      const registerCore = async (): Promise<void> => {
-        if (scope.systemPrompt === undefined) return
-        const memory = await readCore(dir)
-        if (coreOff !== undefined) {
-          coreOff()
-          coreOff = undefined
-        }
-        try {
-          const off = scope.systemPrompt.section({
-            name: 'shixu:core',
-            order: 20,
-            text: coreSection(memory),
-            interpolate: false,
-          })
-          if (typeof off === 'function') {
-            coreOff = off as () => void
-            disposers.push(coreOff)
-          }
-        } catch (error) {
-          fail('equip', `记忆提示段注册失败：${String(error)}`)
-        }
-      }
-      await registerCore()
 
       const driver = ctx.channels.getDriver(chat.protocol)
       if (driver === undefined || scope.tools === undefined) return

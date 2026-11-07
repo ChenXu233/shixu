@@ -477,9 +477,15 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     const persona = agents.sections.find((section) => section.name === 'deployment:persona-prefix')
-    expect(persona?.text).toBe('我是时煦，说话简短。')
+    // 文本是每次装配现取的（人改了文件下一条生效），所以这里取的是 provider。
+    const text = typeof persona?.text === 'function' ? persona.text({}) : persona?.text
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const later = typeof persona?.text === 'function' ? persona.text({}) : persona?.text
+    expect(typeof text).toBe('string')
     // 人设是给人写的，里面的 {{…}} 不该被当成提示词变量去解析。
     expect(persona?.interpolate).toBe(false)
+    expect(persona?.complete).toBe(true)
+    expect(later === '' || typeof later === 'string').toBe(true)
   })
 
   it('在场提示段说清「怎么才算回复」', async () => {
@@ -503,8 +509,8 @@ describe('场所 → agent 绑定', () => {
     await tick()
 
     // 人格只是没写自我介绍；记忆段是它知道自己能记事的地方，不能跟着消失。
-    // 没写自我介绍而已；「你在哪儿、怎么回」和记忆段都还在。
-    expect(agents.sections.map((one) => one.name)).toEqual(['shixu:core'])
+    // 系统提示只剩一段：人格（没写就只剩记忆），别的段都进不来。
+    expect(agents.sections.map((one) => one.name)).toEqual(['deployment:persona-prefix'])
     expect(agents.tools.map((tool) => tool.name)).toEqual([
       'fake_echo',
       'fake_history',
@@ -995,13 +1001,14 @@ describe('场所 → agent 绑定', () => {
 
       // 注册在部署人设那一格，才盖得住「You are a coding agent」。
       const section = agents.sections.find((one) => one.name === 'deployment:persona-prefix')
-      expect(section?.text).toContain('## 我是谁')
-      expect(section?.text).toContain('## 什么时候说话')
-      expect(section?.text).toContain('群里热闹时少说话。')
-      expect(section?.text).toContain('## 怎么说话')
+      const text = typeof section?.text === 'function' ? section.text({}) : section?.text ?? ''
+      expect(text).toContain('## 我是谁')
+      expect(text).toContain('## 什么时候说话')
+      expect(text).toContain('群里热闹时少说话。')
+      expect(text).toContain('## 怎么说话')
       // 例子单独一段，跟在最后。
-      expect(section?.text).toContain('## 举例')
-      expect(section?.text).toContain('时煦：在。')
+      expect(text).toContain('## 举例')
+      expect(text).toContain('时煦：在。')
     })
   })
 
