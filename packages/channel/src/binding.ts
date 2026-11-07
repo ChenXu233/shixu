@@ -384,7 +384,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     const askBackdrop = async (kind: string, prompt: string, chosen?: string): Promise<string> => {
       workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
       const record = await workspace
-      const agentModel = chosen === undefined || chosen === '' ? (model(config) ?? defaultModel(ctx)) : { ...(model(config) ?? defaultModel(ctx)), ...{ model: chosen } }
+      const agentModel = chosen === undefined || chosen === '' ? (venueModel()) : { ...(venueModel()), ...{ model: chosen } }
       backdropSeq += 1
       const sessionId = `${kind}-${Date.now().toString(36)}-${backdropSeq.toString(36)}`
       const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached, disposerOf)
@@ -566,6 +566,22 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     if (decision === 'allow') return ''
     fail('permission', `拒绝 ${name}：${subject} 是 ${role}（${decision}）`)
     return `拒绝：tool=${name} principal=${subject}${named(subject)} role=${role} 原因=角色不允许`
+  }
+
+  /**
+   * 这一轮用哪个模型。
+   *
+   * 人格配置里写了就照写；没写就跟随部署默认，但**去掉 reasoningEffort**。
+   * 部署默认是给编码任务配的 max 档，一次群聊回复要推理一分钟 —— 群里没人等得起。
+   */
+  const venueModel = (): AgentModel | undefined => {
+    const explicit = model(config)
+    if (explicit !== undefined) return explicit
+    const base = defaultModel(ctx) as AgentModel | undefined
+    if (base === undefined) return undefined
+    const { provider, model: id } = base
+    if (provider === undefined || id === undefined) return base
+    return { provider, model: id }
   }
 
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
@@ -966,7 +982,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       try {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
+        const agent = await open(sessionId, agents, live, dir, venueModel(), log, record, attached, disposerOf)
         await equip(sessionId, agent, chat)
         trust = await readIdentity(dir)
         agent.followup(toUserMessage(text))
@@ -1046,12 +1062,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const record = await workspace
         // 会话坏了就换一条：坏的留在磁盘上给人查，这个群不能跟着哑掉。
         let active = sessionId
-        let agent = await open(active, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf).catch(async (error: unknown) => {
+        let agent = await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf).catch(async (error: unknown) => {
           if (!looksCorrupt(error)) throw error
           abandon(venue)
           active = sessionFor(venue, Date.now())
           targets.set(active, chat)
-          return await open(active, agents, live, dir, model(config) ?? defaultModel(ctx), log, record, attached, disposerOf)
+          return await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf)
         })
         await equip(active, agent, chat)
 
