@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -11,6 +12,7 @@ import { readCore } from './memory.js'
 import { digestVenue, refreshProfiles, rollEpisode, type DigestHost } from './digest.js'
 import { exportMemory, importMemory } from './mirror.js'
 import { venueSection } from './brief.js'
+import { toolGuide } from './tool-guide.js'
 import { askJev, type JudgeVerdict } from './judge.js'
 import { parseVerdict, plannerPrompt } from './planner.js'
 import { DIGEST_EVERY, Memory, memoryPath } from './store.js'
@@ -139,6 +141,27 @@ function injectInto(agent: AgentLike, message: UserMessage): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/** 同步版：提示词装配是同步的，等不了 promise。 */
+function readPersonaTextSync(dir: string): string {
+  const read = (file: string): string => {
+    try {
+      return readFileSync(join(dir, file), 'utf8').trim()
+    } catch {
+      return ''
+    }
+  }
+  const filled = PERSONA_PARTS.map((part) => ({ ...part, text: read(part.file) })).filter((part) => part.text !== '')
+  return filled.length > 0 ? filled.map((part) => `## ${part.title}\n${part.text}`).join('\n\n') : read('persona.md')
+}
+
+function readCoreSync(dir: string): string {
+  try {
+    return readFileSync(join(dir, 'core.md'), 'utf8').trim()
+  } catch {
+    return ''
   }
 }
 
@@ -585,6 +608,13 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     return { provider, model: id, reasoningEffort: 'low' }
   }
 
+  /** 这个平台能给模型用哪些「动作类」工具（不含内核那几件）。 */
+  const platformActions = (protocol: string): string[] => {
+    const driver = ctx.channels.getDriver(protocol)
+    if (driver === undefined) return []
+    return exposableActions(driver.actions ?? []).map((action) => action.name)
+  }
+
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
       if (equipped.has(sessionId)) return
       equipped.add(sessionId)
@@ -597,14 +627,16 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       // 用**部署人设那一段的名字**注册并且标 complete，才会把整段提示换成我们的内容 ——
       // 不然上面永远有一句「You are an AI agent powered by DeepSeek Harness」，
       // 问到身份它就照那句答。记忆也并进来：complete 之后别的段都进不来。
-      const systemText = async (): Promise<string> => {
-        const personaText = await readPersonaText(dir).catch(() => '')
-        const memory = await readCore(dir).catch(() => '')
+      const systemText = (): string => {
+        const personaText = readPersonaTextSync(dir)
+        const memory = readCoreSync(dir)
         const core =
           memory.trim() === ''
             ? '（你还没有记下任何事。遇到以后还想得起来的事，就用 remember 记一笔。）'
             : '（下面是你自己记下的事。）\n' + memory
-        return [personaText, core].filter((one) => one.trim() !== '').join('\n\n')
+        // 工具的说明书也算系统提示的一部分：complete 之后没有别的地方放它。
+        const guide = toolGuide(chat.venue.platform, platformActions(chat.protocol))
+        return [personaText, core, guide].filter((one) => one.trim() !== '').join('\n\n')
       }
 
       if (scope.systemPrompt !== undefined) {
@@ -620,25 +652,17 @@ export function apply(ctx: Context, config: PersonaConfig): void {
             }): unknown
           }
           const order = typeof shadow.getSectionOrder === 'function' ? shadow.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX') : 0
-          // 每次装配都现读：人改了人格文件，下一条消息就生效。
-          let cache: { at: number; text: string } | undefined
-          const provider = (): string => {
-            // 装配是同步的，这里只做一次廉价的读；500ms 内复用上一次的结果。
-            if (cache !== undefined && Date.now() - cache.at < 500) return cache.text
-            return cache?.text ?? ''
-          }
+          // 装配是同步的，所以这里同步现读：人格文件和 core.md 都只有几 KB，
+          // 而且人改完文件下一条消息就该生效 —— 不能先给个空串再慢慢补。
           const off = shadow.section({
             name: 'deployment:persona-prefix',
             order,
-            text: provider,
+            text: systemText,
             interpolate: false,
             complete: true,
           })
           if (typeof off === 'function') disposers.push(off as () => void)
-          void systemText().then((text) => {
-            cache = { at: Date.now(), text }
-            journal.note('equip', `系统提示 ${text.length} 字（${sessionId}）`)
-          })
+          journal.note('equip', `系统提示 ${systemText().length} 字（${sessionId}）`)
         } catch (error) {
           fail('equip', `人格提示段注册失败：${String(error)}`)
         }

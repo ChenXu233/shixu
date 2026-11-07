@@ -467,6 +467,22 @@ describe('场所 → agent 绑定', () => {
     expect(driver.sent.at(-1)?.params).toMatchObject({ text: 'hi' })
   })
 
+  it('系统提示里有工具怎么用，尤其是我们自己的三件', async () => {
+    const { driver, agents } = await boot()
+    driver.simulateInbound({ conversationId: 'g1', mentions: ['bot'], text: '你好' })
+    await tick()
+
+    const section = agents.sections.find((one) => one.name === 'deployment:persona-prefix')
+    const text = typeof section?.text === 'function' ? section.text({}) : section?.text ?? ''
+    // complete：一句话都不多给，所以工具说明必须自己带。
+    expect(section?.complete).toBe(true)
+    expect(text).toContain('这一轮说的话就是回复')
+    expect(text).toContain('stay_quiet')
+    expect(text).toContain('fake_reply_to')
+    expect(text).toContain('memory_search')
+    expect(text).toContain('每次调用都带 principal')
+  })
+
   it('persona.md 变成一条系统提示段', async () => {
     const dir = join(home, 'persona', 'default')
     await mkdir(dir, { recursive: true })
