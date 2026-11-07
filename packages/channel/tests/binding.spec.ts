@@ -481,6 +481,8 @@ describe('场所 → agent 绑定', () => {
     // 平台动作不进说明：驱动会换，写死在提示里就是第二份会漂的目录。
     expect(text).toContain('平台_reply_to')
     expect(text).not.toContain('fake_poke')
+    // 得说清楚「怎么查」：动作就在工具列表里，不用调什么去问。
+    expect(text).toContain('在你的工具列表里')
     expect(text).toContain('memory_search')
     expect(text).toContain('每次调用都带 principal')
   })
