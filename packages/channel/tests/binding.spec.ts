@@ -478,7 +478,9 @@ describe('场所 → agent 绑定', () => {
     expect(section?.complete).toBe(true)
     expect(text).toContain('这一轮说的话就是回复')
     expect(text).toContain('stay_quiet')
-    expect(text).toContain('fake_reply_to')
+    // 平台动作不进说明：驱动会换，写死在提示里就是第二份会漂的目录。
+    expect(text).toContain('平台_reply_to')
+    expect(text).not.toContain('fake_poke')
     expect(text).toContain('memory_search')
     expect(text).toContain('每次调用都带 principal')
   })

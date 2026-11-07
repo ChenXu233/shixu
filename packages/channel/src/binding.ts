@@ -608,13 +608,6 @@ export function apply(ctx: Context, config: PersonaConfig): void {
     return { provider, model: id, reasoningEffort: 'low' }
   }
 
-  /** 这个平台能给模型用哪些「动作类」工具（不含内核那几件）。 */
-  const platformActions = (protocol: string): string[] => {
-    const driver = ctx.channels.getDriver(protocol)
-    if (driver === undefined) return []
-    return exposableActions(driver.actions ?? []).map((action) => action.name)
-  }
-
   const equip = async (sessionId: string, agent: AgentLike, chat: ChatSession): Promise<void> => {
       if (equipped.has(sessionId)) return
       equipped.add(sessionId)
@@ -635,7 +628,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
             ? '（你还没有记下任何事。遇到以后还想得起来的事，就用 remember 记一笔。）'
             : '（下面是你自己记下的事。）\n' + memory
         // 工具的说明书也算系统提示的一部分：complete 之后没有别的地方放它。
-        const guide = toolGuide(chat.venue.platform, platformActions(chat.protocol))
+        const guide = toolGuide()
         return [personaText, core, guide].filter((one) => one.trim() !== '').join('\n\n')
       }
 
