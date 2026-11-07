@@ -387,7 +387,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       const agentModel = chosen === undefined || chosen === '' ? (venueModel()) : { ...(venueModel()), ...{ model: chosen } }
       backdropSeq += 1
       const sessionId = `${kind}-${Date.now().toString(36)}-${backdropSeq.toString(36)}`
-      const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached, disposerOf)
+      const agent = await open(sessionId, agents, live, dir, agentModel, log, record, attached, disposerOf, false)
       const done = new Promise<string>((resolve) => {
         backdropWaiters.set(sessionId, resolve)
       })
@@ -983,7 +983,7 @@ export function apply(ctx: Context, config: PersonaConfig): void {
       try {
         workspace ??= prepareWorkspace(ctx, dir, title, log, journal)
         const record = await workspace
-        const agent = await open(sessionId, agents, live, dir, venueModel(), log, record, attached, disposerOf)
+        const agent = await open(sessionId, agents, live, dir, venueModel(), log, record, attached, disposerOf, true)
         await equip(sessionId, agent, chat)
         trust = await readIdentity(dir)
         agent.followup(toUserMessage(text))
@@ -1063,12 +1063,12 @@ export function apply(ctx: Context, config: PersonaConfig): void {
         const record = await workspace
         // 会话坏了就换一条：坏的留在磁盘上给人查，这个群不能跟着哑掉。
         let active = sessionId
-        let agent = await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf).catch(async (error: unknown) => {
+        let agent = await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf, true).catch(async (error: unknown) => {
           if (!looksCorrupt(error)) throw error
           abandon(venue)
           active = sessionFor(venue, Date.now())
           targets.set(active, chat)
-          return await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf)
+          return await open(active, agents, live, dir, venueModel(), log, record, attached, disposerOf, true)
         })
         await equip(active, agent, chat)
 
@@ -1105,6 +1105,10 @@ export function apply(ctx: Context, config: PersonaConfig): void {
 
         // 这一轮还在跑：把消息插进它的下一步，不另起一轮。
         // 模型在同一个 turn 里会看到两个说话人，工具调用必须自己声明替谁做。
+        // 从收到到真正投给模型隔了多久：卡住的时候必须能从日志里一眼看出来。
+        const spent = Date.now() - event.timestamp
+        if (spent > 5000) journal.note('deliver', `${venue} 排队 ${Math.round(spent / 1000)}s 才轮到它说话`)
+
         if (running.has(sessionId) && injectInto(agent, message)) {
           // 注入不会触发 user/message，说话人得我们自己记：不然这一轮的第二个发言人
           // 在闸门那里是隐形的，工具调用会被算到第一个人头上。
@@ -1437,6 +1441,7 @@ async function open(
   workspace: WorkspaceRecordLike | undefined,
   attached: Set<string>,
   disposers: Map<string, () => void>,
+  attachToWorkspace: boolean,
 ): Promise<AgentLike> {
   const existing = live.get(sessionId)
   if (existing !== undefined) return existing
@@ -1446,14 +1451,12 @@ async function open(
   if (created?.dispose !== undefined) disposers.set(sessionId, created.dispose)
   live.set(sessionId, agent)
 
-  if (!attached.has(sessionId)) {
+  if (attachToWorkspace && !attached.has(sessionId)) {
     attached.add(sessionId)
-    // 没有 cwd 的老会话挂不进去（attachSession 会拒），这不影响回复，只是侧栏里看不到它。
-    try {
-      await workspace?.attachSession?.(sessionId)
-    } catch {
-      /* 老会话没有 cwd，登记不进去就算了 */
-    }
+    // **不等它**：侧栏登记是给人看的，不该挡住回复。之前这里 await，workspace 一慢，
+    // 整个场所的队列就卡住 —— 凌晨那批消息晚回了三个多小时，就是卡在这一行。
+    Promise.resolve(workspace?.attachSession?.(sessionId))
+      .then(() => undefined, () => undefined)
   }
   return agent
 }
